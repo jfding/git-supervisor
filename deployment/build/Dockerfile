@@ -18,6 +18,7 @@ COPY dot.ssh/* /root/.ssh/
 RUN mkdir -p /scripts
 COPY check-push.sh /scripts
 COPY prod2latest.sh /scripts
+COPY cleanup-archives.sh /scripts
 
 WORKDIR /webhook
 COPY hook.py /webhook
