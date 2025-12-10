@@ -26,8 +26,10 @@ function _version_less_than {
   python3 -c "
 import sys
 v1, v2 = sys.argv[1].lstrip('v'), sys.argv[2].lstrip('v')
-n1 = [int(x) for x in v1.split('.')]
-n2 = [int(x) for x in v2.split('.')]
+n1 = [[int(y) for y in x.split('Q')] for x in v1.split('.')]
+n1 = [item for sublist in n1 for item in sublist]
+n2 = [[int(y) for y in x.split('Q')] for x in v2.split('.')]
+n2 = [item for sublist in n2 for item in sublist]
 max_len = max(len(n1), len(n2))
 n1.extend([0] * (max_len - len(n1)))
 n2.extend([0] * (max_len - len(n2)))
@@ -222,7 +224,7 @@ function fetch_and_check {
     fi
   done
 
-  for _release in `git tag -l  | grep '^v[0-9.]\+$' `; do
+  for _release in `git tag -l  | grep '^v[Q0-9.]\+$' `; do
     checkout_and_copy_tag $_repo $_release
 
     # heart beat
