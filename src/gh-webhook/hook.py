@@ -4,11 +4,15 @@ from flask import Flask, request, jsonify
 import subprocess
 import hmac
 import hashlib
+import os
 
 app = Flask(__name__)
 
 # Secret for verifying GitHub webhook signature
 GITHUB_SECRET = 'bzpEZb1N6LY5O2woay7QB0NtKVXiSo2O'
+
+# Check if Rust binary should be used
+USE_RUST = os.environ.get('USE_RUST', '0') == '1'
 
 def verify_signature(payload_body, signature_header):
     """Verify that the payload was sent from GitHub by validating SHA256.
@@ -32,9 +36,19 @@ def webhook():
     payload = request.json
 
     if event == 'push':
-        # Example: Run a CI script
-        subprocess.run(['/scripts/check-push.sh', 'once'], check=True)
-        return jsonify({'status': 'CI job started'}), 200
+        # Run check-push script (Rust or bash version)
+        if USE_RUST:
+            script_path = '/scripts/check-push-rs'
+            args = ['--once']
+        else:
+            script_path = '/scripts/check-push.sh'
+            args = ['once']
+
+        try:
+            subprocess.run([script_path] + args, check=True)
+            return jsonify({'status': 'CI job started', 'version': 'rust' if USE_RUST else 'bash'}), 200
+        except subprocess.CalledProcessError as e:
+            return jsonify({'error': f'Script execution failed: {e}'}), 500
 
     return jsonify({'status': 'Event not handled'}), 200
 
