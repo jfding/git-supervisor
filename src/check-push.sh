@@ -38,20 +38,20 @@ function _logging {
     local _level=$1; shift
     local _datetime=$(/bin/date '+%m-%d %H:%M:%S>')
     if [ $_level -le $VERB ]; then
-        echo $_datetime $*
+        echo $_datetime "$@"
     fi
 }
 function mustsay {
-    _logging 0 $*
+    _logging 0 "$@"
 }
 function say {
-    _logging 1 $*
+    _logging 1 "$@"
 }
 function verbose {
-    _logging 2 $*
+    _logging 2 "$@"
 }
 function err {
-  mustsay "ERROR: $*"
+  mustsay "ERROR: $@"
 }
 
 # file lock
@@ -67,9 +67,9 @@ trap release_lock EXIT INT TERM
 
 function _timeout {
     if command -v timeout &>/dev/null; then
-        timeout $TIMEOUT $*
+        timeout $TIMEOUT "$@"
     else
-        $*
+        "$@"
     fi
 }
 
@@ -215,13 +215,13 @@ function fetch_and_check {
   local _release
   local _bp
 
-  cd $_repo || { err "failed to cd to $_repo, critical issue, skip"; return; }
+  cd $_repo || { err "failed to cd to $_repo, critical issue, skip"; return 1; }
 
   # clean up trash file from last time crash
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
 
   say "..fetching repo ..."
-  _timeout git fetch -q --all --tags --prune || err "failed to fetch repo $_repo"
+  _timeout git fetch -q --all --tags --prune || { err "failed to fetch repo $_repo, skip"; return 1; }
 
   #for _br in `ls .git/refs/remotes/origin/`; do
   for _br in $(git branch -r | grep -v HEAD | sed -e 's/.*origin\///'); do
@@ -316,7 +316,8 @@ command -v docker >/dev/null || { say "docker cli not found, will skip docker re
 
 ## check and init all working dirs
 # 1. check the DIR_BASE is available (sanitize&check at the time)
-DIR_BASE=$(realpath -q $DIR_BASE) || { err "DIR_BASE not found: $DIR_BASE"; exit 1; }
+_ORIG_DIR_BASE=$DIR_BASE
+DIR_BASE=$(realpath $DIR_BASE 2>/dev/null) || { err "base working dir not found: $_ORIG_DIR_BASE"; exit 1; }
 # subdirs
 DIR_REPOS=${DIR_BASE}/git_repos
 DIR_COPIES=${DIR_BASE}/copies
