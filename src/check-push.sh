@@ -5,17 +5,14 @@
 [[ -z $TIMEOUT ]] && TIMEOUT=600
 [[ -z $SLEEP_TIME ]] && SLEEP_TIME=360
 
-# if VERB=0, keep super silent
-[[ $VERB = 0 ]] && exec>/dev/null
-
-BR_WHITELIST="main master dev test alpha"
+[[ -z $CI_LOCK ]] && CI_LOCK=/tmp/.auto-reloader-lock.d
 
 [[ -z $DIR_BASE ]] && DIR_BASE=/work
-
 DIR_REPOS=${DIR_BASE}/git_repos
 DIR_COPIES=${DIR_BASE}/copies
 DIR_SCRIPTS=${DIR_BASE}/scripts
-[[ -z $CI_LOCK ]] && CI_LOCK=/tmp/.auto-reloader-lock.d
+
+BR_WHITELIST="main master dev test alpha"
 
 function _version_less_than {
   if [[ -z $1 ]] || [[ -z $2 ]]; then
@@ -317,6 +314,14 @@ function main {
 }
 
 ## __main__ start here
+
+# if VERB=0, keep super silent
+[[ $VERB = 0 ]] && exec >/dev/null 2>&1
+
+for c in git rsync docker; do
+  command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
+done
+
 if [[ $1 == "once" ]]; then
   unset SLEEP_TIME
   main
