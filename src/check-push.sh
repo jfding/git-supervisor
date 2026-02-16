@@ -57,7 +57,14 @@ function err {
 # file lock
 function acquire_lock {
   # mkdir is atomic; only one process can create the dir
-  while ! mkdir "$CI_LOCK" 2>/dev/null; do sleep 1; done
+  # max waiting times will be 100
+  for _i in {1..100}; do
+    mkdir "$CI_LOCK" 2>/dev/null && return 0
+    sleep 1
+  done
+
+  err "failed to acquire lock after many tries, abort, please clean up stale lock manually"
+  exit 1
 }
 function release_lock {
   rmdir "$CI_LOCK" 2>/dev/null || true
