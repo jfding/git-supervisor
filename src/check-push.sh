@@ -9,11 +9,6 @@ set -o pipefail
 : "${CI_LOCK:=/tmp/.auto-reloader-lock.d}"
 : "${DIR_BASE:=/work}"
 
-## derived vars
-DIR_REPOS=${DIR_BASE}/git_repos
-DIR_COPIES=${DIR_BASE}/copies
-DIR_SCRIPTS=${DIR_BASE}/scripts
-
 ## hard coded settings
 BR_WHITELIST="main master dev test alpha"
 
@@ -279,25 +274,17 @@ function fetch_and_check {
   cd - > /dev/null
 }
 
-function main {
+function main_loop {
   local _repo
   
-  # working dir
-  [[ -d $DIR_REPOS ]] || mkdir -p $DIR_REPOS
-
-  # check scripts dir and copy scripts in docker to external
-  [[ ! -d $DIR_SCRIPTS ]] && {
-    # only copy scripts once when creating the dir
-    mkdir -p $DIR_SCRIPTS
-    rsync -a /scripts/* $DIR_SCRIPTS
-  }
+  cd $DIR_REPOS || { err "failed to cd to DIR_REPOS: $DIR_REPOS, critical issue, abort"; exit 1; }
 
   # loop like a daemon
   while true; do
+
     # Acquire lock
     acquire_lock
 
-    cd $DIR_REPOS
     for _repo in * ; do
       if [[ -d $_repo/.git ]]; then
         mustsay "checking git status for <$_repo>"
@@ -316,18 +303,32 @@ function main {
   done
 }
 
-## __main__ start here
+### __main__ ###
 
-# if VERB=0, keep super silent
-[[ $VERB = 0 ]] && exec >/dev/null 2>&1
-
+# check for required commands
 for c in git rsync docker; do
   command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
 done
 
+## check and init all working dirs
+# 1. check the DIR_BASE is available (sanitize&check at the time)
+DIR_BASE=$(realpath -q $DIR_BASE) || { err "DIR_BASE not found: $DIR_BASE"; exit 1; }
+# subdirs
+DIR_REPOS=${DIR_BASE}/git_repos
+DIR_COPIES=${DIR_BASE}/copies
+
+# 2. DIR_BASE/copies is writable
+[[ -d $DIR_COPIES ]] || mkdir -p $DIR_COPIES || { err "failed to create DIR_COPIES: $DIR_COPIES"; exit 1; }
+[[ -w $DIR_COPIES ]] || { err "DIR_COPIES not writable: $DIR_COPIES"; exit 1; }
+# 3. init repo dir
+[[ -d $DIR_REPOS ]] || mkdir -p $DIR_REPOS
+
+# if VERB=0, keep super silent
+[[ $VERB = 0 ]] && exec >/dev/null 2>&1
+
 if [[ "${1:-}" == "once" ]]; then
   SLEEP_TIME=0
-  main
+  main_loop
 else
-  main
+  main_loop
 fi
