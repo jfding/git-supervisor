@@ -36,7 +36,7 @@ sys.exit(0 if n1 < n2 else (1 if n1 > n2 else 2))
 
 function _logging {
     local _level=$1; shift
-    local _datetime=`/bin/date '+%m-%d %H:%M:%S>'`
+    local _datetime=$(/bin/date '+%m-%d %H:%M:%S>')
     if [ $_level -le $VERB ]; then
         echo $_datetime $*
     fi
@@ -78,9 +78,9 @@ function _handle_post {
     local _post_path=$1
     local _cp_path=$2
 
-    if [[ -f ${_post_path} ]]; then
+    if [[ -f "${_post_path}" ]]; then
       say "..running post scripts [ $_post_path ]"
-      cd ${_cp_path}
+      cd "${_cp_path}"
       bash "${_post_path}"
       cd - > /dev/null
     fi
@@ -90,11 +90,11 @@ function _handle_docker {
     # restart docker instance
     local _docker_path=$1
 
-    if [[ -f ${_docker_path} ]]; then
-      local _docker_name=`cat ${_docker_path}`
+    if [[ -f "${_docker_path}" ]]; then
+      local _docker_name=$(cat "${_docker_path}")
 
       say "..restarting docker [ $_docker_name ]"
-      _timeout docker restart $_docker_name > /dev/null || err "failed to restart docker [ $_docker_name ]"
+      _timeout docker restart "${_docker_name}" > /dev/null || err "failed to restart docker [ $_docker_name ]"
       unset _docker_name
     fi
 }
@@ -124,7 +124,7 @@ function checkout_and_copy_tag {
 
   if [[ -L $_latest_path ]]; then
     local _cur_latest_path=$(readlink $_latest_path)
-    local _cur_latest_tag=$(basename $_cur_latest_path | sed 's/.*.prod.//')
+    local _cur_latest_tag=$(basename $_cur_latest_path | sed 's/.*\.prod\.//')
 
     if _version_less_than $_cur_latest_tag $_tag; then
       rm -f $_latest_path
@@ -155,11 +155,11 @@ function checkout_and_copy_br {
   [[ ! -d $_cp_path ]] && mkdir -p $_cp_path && touch $_cp_path/.skipping && say "..init dir of [ $_br ]"
 
   # checking flags
-  if [[ -f ${_cp_path}/.debugging ]]; then
+  if [[ -f "${_cp_path}/.debugging" ]]; then
     verbose "..skip debugging work copy of branch [ $_br ]"
     return
   fi
-  if [[ -f ${_cp_path}/.skipping ]]; then
+  if [[ -f "${_cp_path}/.skipping" ]]; then
     verbose "..skip unused branch [ $_br ]"
     return
   fi
@@ -168,27 +168,27 @@ function checkout_and_copy_br {
   git checkout -q -f $_br
 
   # check whether need to init all files at first
-  [[ -z `/bin/ls $_cp_path` ]] && rsync -a --delete --exclude .git . $_cp_path && say "..copy files for [ $_br ]"
+  [[ -z $(/bin/ls $_cp_path) ]] && rsync -a --delete --exclude .git . $_cp_path && say "..copy files for [ $_br ]"
 
-  local _diff=`git diff --name-only $_br origin/$_br`
+  local _diff=$(git diff --name-only $_br origin/$_br)
 
   # add a debug trigger
-  if [[ -f ${_cp_path}/.trigger ]]; then
-    rm -f ${_cp_path}/.trigger # burn after reading
+  if [[ -f "${_cp_path}/.trigger" ]]; then
+    rm -f "${_cp_path}/.trigger" # burn after reading
 
-    if [[ -z $_diff ]]; then
+    if [[ -z "${_diff}" ]]; then
       say "..having a debug try"
       _diff="debugging"
     fi
   fi
 
-  if [[ -n $_diff ]]; then
+  if [[ -n "${_diff}" ]]; then
       say "..UPDATING branch [ $_br ]"
       git checkout -q -B $_br origin/$_br || {
           mustsay "..failed git checkout and skip"
           return
       }
-      if [[ -f ${_cp_path}/.no-cleanup ]]; then
+      if [[ -f "${_cp_path}/.no-cleanup" ]]; then
         # if ./no-cleanup existing, do not clean up cached or built files
         rsync -a --exclude .git . $_cp_path
       else
@@ -213,7 +213,7 @@ function fetch_and_check {
   local _release
   local _bp
 
-  cd $_repo
+  cd $_repo || { err "failed to cd to $_repo, critical issue, skip"; return; }
 
   # clean up trash file from last time crash
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
@@ -222,9 +222,9 @@ function fetch_and_check {
   _timeout git fetch -q --all --tags --prune || err "failed to fetch repo $_repo"
 
   #for _br in `ls .git/refs/remotes/origin/`; do
-  for _br in `git branch -r  | grep -v HEAD | sed -e 's/.*origin\///'`; do
+  for _br in $(git branch -r | grep -v HEAD | sed -e 's/.*origin\///'); do
     [[ $_br = 'HEAD' ]] && continue
-    (echo $_br | grep -q '/') && continue
+    (echo "$_br" | grep -q '/') && continue
 
     # check branch whitelist || repo dir exists already
     if [[ $BR_WHITELIST =~ (^|[[:space:]])$_br($|[[:space:]]) ]] || [[ -d "${DIR_COPIES}/${_repo}.${_br}" ]]; then
@@ -235,7 +235,7 @@ function fetch_and_check {
     fi
   done
 
-  for _release in `git tag -l  | grep '^v[Q0-9.]\+$' `; do
+  for _release in $(git tag -l | grep '^v[Q0-9.]\+$'); do
     checkout_and_copy_tag $_repo $_release
 
     # heart beat
@@ -245,7 +245,7 @@ function fetch_and_check {
   done
 
   # clean up deprected dirs in "work/copies"
-  for _bp in `/bin/ls -d ${DIR_COPIES}/${_repo}.*/`; do
+  for _bp in $(/bin/ls -d ${DIR_COPIES}/${_repo}.*/); do
 
       (echo $_bp | grep -q to-be-removed) && continue
       (echo $_bp | grep -q .latest) && continue
@@ -253,21 +253,21 @@ function fetch_and_check {
       _bp=${_bp%/}
 
       # manually marked as deprecated
-      if [ -f $_bp/.stopping ]; then
+      if [ -f "${_bp}/.stopping" ]; then
         # clean up all content
-        rm -rf $_bp
-        mkdir -p $_bp
-        touch $_bp/.skipping
-        touch $_bp/.living
+        rm -rf "${_bp}"
+        mkdir -p "${_bp}"
+        touch "${_bp}/.skipping"
+        touch "${_bp}/.living"
       fi
 
-      if [ -f $_bp/.living ]; then
-        rm -f "$_bp/.living"
+      if [ -f "${_bp}/.living" ]; then
+        rm -f "${_bp}/.living"
       else
-        say "..cleaning up deprecated dir: $_bp"
+        say "..cleaning up deprecated dir: ${_bp}"
         #rm -rf $_bp
         #rm -f ${_bp}.*
-        mv $_bp $_bp.to-be-removed
+        mv "$_bp" "${_bp}.to-be-removed"
       fi
   done
 
@@ -285,10 +285,10 @@ function main_loop {
     # Acquire lock
     acquire_lock
 
-    for _repo in * ; do
-      if [[ -d $_repo/.git ]]; then
-        mustsay "checking git status for <$_repo>"
-        fetch_and_check $_repo
+    for _repo in $(/bin/ls -d *); do
+      if [[ -d "${_repo}/.git" ]]; then
+        mustsay "checking git status for <${_repo}> ..."
+        fetch_and_check "${_repo}"
       fi
     done
 
