@@ -90,6 +90,8 @@ function _handle_docker {
     # restart docker instance
     local _docker_path=$1
 
+    command -v docker >/dev/null || { say "WARN: docker cli not found, skip docker restart"; return; }
+
     if [[ -f "${_docker_path}" ]]; then
       local _docker_name=$(cat "${_docker_path}")
 
@@ -306,9 +308,11 @@ function main_loop {
 ### __main__ ###
 
 # check for required commands
-for c in git rsync docker; do
+for c in git rsync; do
   command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
 done
+# check for optional 'docker' support
+command -v docker >/dev/null || { say "docker cli not found, will skip docker restart handling"; }
 
 ## check and init all working dirs
 # 1. check the DIR_BASE is available (sanitize&check at the time)
