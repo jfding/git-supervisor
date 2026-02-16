@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -uo pipefail
 
 ## global settings
 [[ -z $VERB ]] && VERB=1
@@ -54,6 +54,10 @@ function verbose {
     _logging 2 $*
 }
 
+function err {
+  mustsay "ERROR: $*"
+}
+
 function _timeout {
     if which timeout &>/dev/null; then
         timeout $TIMEOUT $*
@@ -83,7 +87,7 @@ function _handle_docker {
       _docker_name=`cat ${_docker_path}`
 
       say "..restarting docker [ $_docker_name ]"
-      docker restart $_docker_name > /dev/null
+      _timeout docker restart $_docker_name > /dev/null || err "failed to restart docker [ $_docker_name ]"
       unset _docker_name
     fi
 }
@@ -208,7 +212,7 @@ function fetch_and_check {
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
 
   say "..fetching repo ..."
-  _timeout git fetch -q --all --tags --prune
+  _timeout git fetch -q --all --tags --prune || err "failed to fetch repo $_repo"
 
   #for _br in `ls .git/refs/remotes/origin/`; do
   for _br in `git branch -r  | grep -v HEAD | sed -e 's/.*origin\///'`; do
