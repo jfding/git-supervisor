@@ -13,7 +13,7 @@ BR_WHITELIST="main master dev test alpha"
 [[ -z $DIR_REPOS ]] && DIR_REPOS=/work/git_repos
 [[ -z $DIR_COPIES ]] && DIR_COPIES=/work/copies
 [[ -z $DIR_SCRIPTS ]] && DIR_SCRIPTS=/work/scripts
-[[ -z $CI_LOCK ]] && CI_LOCK=/tmp/.ci-lock
+[[ -z $CI_LOCK ]] && CI_LOCK=/tmp/.ci-lock.d
 
 function _version_less_than {
   if [[ -z $1 ]] || [[ -z $2 ]]; then
@@ -53,10 +53,20 @@ function say {
 function verbose {
     _logging 2 $*
 }
-
 function err {
   mustsay "ERROR: $*"
 }
+
+# file lock
+function acquire_lock {
+  # mkdir is atomic; only one process can create the dir
+  while ! mkdir "$CI_LOCK" 2>/dev/null; do sleep 1; done
+}
+function release_lock {
+  rmdir "$CI_LOCK" 2>/dev/null || true
+}
+# make sure clean up locks on exit
+trap release_lock EXIT INT TERM
 
 function _timeout {
     if which timeout &>/dev/null; then
@@ -280,9 +290,8 @@ function main {
 
   # loop like a daemon
   while true; do
-    # Acquire file-lock
-    while [[ -f $CI_LOCK ]]; do sleep 1; done
-    touch $CI_LOCK
+    # Acquire lock
+    acquire_lock
 
     cd $DIR_REPOS
     for _repo in * ; do
@@ -293,7 +302,7 @@ function main {
     done
 
     # Release lock
-    rm -f $CI_LOCK
+    release_lock
 
     # if SLEEP_TIME is not set, means run once and exit
     [[ -z $SLEEP_TIME ]] && exit 0
