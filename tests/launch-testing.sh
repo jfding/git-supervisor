@@ -29,14 +29,14 @@ echo "4. Cleanup test environment: ./scripts/cleanup-test.sh"
 echo ""
 
 # Check if test repositories exist
-if [[ ! -d "$DIR_REPOS" ]] || [[ -z "$(ls -A "$DIR_REPOS" 2>/dev/null)" ]]; then
+if [[ ! -d "$DIR_BASE/git_repos" ]] || [[ -z "$(ls -A "$DIR_BASE/git_repos" 2>/dev/null)" ]]; then
     echo "Test repositories not found. Setting up..."
     "$TESTING_SCRIPTS_DIR/setup-test-repos.sh"
     echo ""
 fi
 
 # Check if test scenarios exist
-if [[ ! -d "$DIR_COPIES" ]] || [[ -z "$(ls -A "$DIR_COPIES" 2>/dev/null)" ]]; then
+if [[ ! -d "$DIR_BASE/copies" ]] || [[ -z "$(ls -A "$DIR_BASE/copies" 2>/dev/null)" ]]; then
     echo "Test scenarios not found. Creating..."
     "$TESTING_SCRIPTS_DIR/create-test-scenarios.sh"
     echo ""
@@ -50,5 +50,5 @@ echo ""
 
 echo ""
 echo "=== Test completed ==="
-echo "Check the tests/copies directory for results."
+echo "Check the tests/work.test/copies directory for results."
 echo "Use './scripts/cleanup-test.sh' to clean up when done."
