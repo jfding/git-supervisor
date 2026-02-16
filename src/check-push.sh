@@ -1,17 +1,20 @@
-#!/usr/bin/env bash -uo pipefail
+#!/usr/bin/env bash
+set -u
+set -o pipefail
 
-## global settings
-[[ -z $VERB ]] && VERB=1
-[[ -z $TIMEOUT ]] && TIMEOUT=600
-[[ -z $SLEEP_TIME ]] && SLEEP_TIME=360
+## global config settings
+: "${VERB:=1}"
+: "${TIMEOUT:=600}"
+: "${SLEEP_TIME:=360}"
+: "${CI_LOCK:=/tmp/.auto-reloader-lock.d}"
+: "${DIR_BASE:=/work}"
 
-[[ -z $CI_LOCK ]] && CI_LOCK=/tmp/.auto-reloader-lock.d
-
-[[ -z $DIR_BASE ]] && DIR_BASE=/work
+## derived vars
 DIR_REPOS=${DIR_BASE}/git_repos
 DIR_COPIES=${DIR_BASE}/copies
 DIR_SCRIPTS=${DIR_BASE}/scripts
 
+## hard coded settings
 BR_WHITELIST="main master dev test alpha"
 
 function _version_less_than {
@@ -305,8 +308,8 @@ function main {
     # Release lock
     release_lock
 
-    # if SLEEP_TIME is not set, means run once and exit
-    [[ -z $SLEEP_TIME ]] && exit 0
+    # if SLEEP_TIME value is 0, means run once and exit
+    [[ $SLEEP_TIME == 0 ]] && exit 0
 
     say "waiting for next check ..."
     sleep $SLEEP_TIME
@@ -322,8 +325,8 @@ for c in git rsync docker; do
   command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
 done
 
-if [[ $1 == "once" ]]; then
-  unset SLEEP_TIME
+if [[ "${1:-}" == "once" ]]; then
+  SLEEP_TIME=0
   main
 else
   main
