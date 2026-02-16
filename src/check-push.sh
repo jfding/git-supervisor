@@ -1,4 +1,4 @@
-#!/bin/bash -uo pipefail
+#!/usr/bin/env bash -uo pipefail
 
 ## global settings
 [[ -z $VERB ]] && VERB=1
@@ -10,10 +10,12 @@
 
 BR_WHITELIST="main master dev test alpha"
 
-[[ -z $DIR_REPOS ]] && DIR_REPOS=/work/git_repos
-[[ -z $DIR_COPIES ]] && DIR_COPIES=/work/copies
-[[ -z $DIR_SCRIPTS ]] && DIR_SCRIPTS=/work/scripts
-[[ -z $CI_LOCK ]] && CI_LOCK=/tmp/.ci-lock.d
+[[ -z $DIR_BASE ]] && DIR_BASE=/work
+
+DIR_REPOS=${DIR_BASE}/git_repos
+DIR_COPIES=${DIR_BASE}/copies
+DIR_SCRIPTS=${DIR_BASE}/scripts
+[[ -z $CI_LOCK ]] && CI_LOCK=/tmp/.auto-reloader-lock.d
 
 function _version_less_than {
   if [[ -z $1 ]] || [[ -z $2 ]]; then
@@ -69,7 +71,7 @@ function release_lock {
 trap release_lock EXIT INT TERM
 
 function _timeout {
-    if which timeout &>/dev/null; then
+    if command -v timeout &>/dev/null; then
         timeout $TIMEOUT $*
     else
         $*
@@ -94,7 +96,7 @@ function _handle_docker {
     local _docker_path=$1
 
     if [[ -f ${_docker_path} ]]; then
-      _docker_name=`cat ${_docker_path}`
+      local _docker_name=`cat ${_docker_path}`
 
       say "..restarting docker [ $_docker_name ]"
       _timeout docker restart $_docker_name > /dev/null || err "failed to restart docker [ $_docker_name ]"
@@ -107,11 +109,11 @@ function checkout_and_copy_tag {
   local _repo=$1
   local _tag=$2
 
-  _cp_path="${DIR_COPIES}/${_repo}.prod.${_tag}"
-  _arch_path="${DIR_COPIES}/.archives/${_repo}.prod.${_tag}"
-  _post_path="${DIR_COPIES}/${_repo}.prod.post"
-  _docker_path="${DIR_COPIES}/${_repo}.prod.docker"
-  _latest_path="${DIR_COPIES}/${_repo}.prod.latest"
+  local _cp_path="${DIR_COPIES}/${_repo}.prod.${_tag}"
+  local _arch_path="${DIR_COPIES}/.archives/${_repo}.prod.${_tag}"
+  local _post_path="${DIR_COPIES}/${_repo}.prod.post"
+  local _docker_path="${DIR_COPIES}/${_repo}.prod.docker"
+  local _latest_path="${DIR_COPIES}/${_repo}.prod.latest"
 
   # if path exists, skip
   [[ -d $_cp_path ]] && return
@@ -126,8 +128,8 @@ function checkout_and_copy_tag {
   mkdir -p $_cp_path && rsync -a --delete --exclude .git . $_cp_path && say "..copy files for new RELEASE [ $_tag ]"
 
   if [[ -L $_latest_path ]]; then
-    _cur_latest_path=$(readlink $_latest_path)
-    _cur_latest_tag=$(basename $_cur_latest_path | sed 's/.*.prod.//')
+    local _cur_latest_path=$(readlink $_latest_path)
+    local _cur_latest_tag=$(basename $_cur_latest_path | sed 's/.*.prod.//')
 
     if _version_less_than $_cur_latest_tag $_tag; then
       rm -f $_latest_path
@@ -173,7 +175,7 @@ function checkout_and_copy_br {
   # check whether need to init all files at first
   [[ -z `/bin/ls $_cp_path` ]] && rsync -a --delete --exclude .git . $_cp_path && say "..copy files for [ $_br ]"
 
-  _diff=`git diff --name-only $_br origin/$_br`
+  local _diff=`git diff --name-only $_br origin/$_br`
 
   # add a debug trigger
   if [[ -f ${_cp_path}/.trigger ]]; then
@@ -278,6 +280,8 @@ function fetch_and_check {
 }
 
 function main {
+  local _repo
+  
   # working dir
   [[ -d $DIR_REPOS ]] || mkdir -p $DIR_REPOS
 
