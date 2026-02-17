@@ -10,9 +10,9 @@ DEV_DIR="$(dirname "$SCRIPT_DIR")/work.test"
 
 echo "Cleaning up test environment..."
 
-# Remove test directories
+# Remove test directories (including lock directory CI_LOCK if present)
 if [[ -d "$DEV_DIR" ]]; then
-    echo "Removing git_repos directory..."
+    echo "Removing work.test directory (including .ci-lock.d if present)..."
     rm -rf "$DEV_DIR"
 fi
 

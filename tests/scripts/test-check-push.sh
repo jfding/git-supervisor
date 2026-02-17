@@ -6,21 +6,21 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEV_DIR="$(dirname "$SCRIPT_DIR")/work.test"
+DEV_DIR="$(cd "$(dirname "$SCRIPT_DIR")/work.test" && pwd)"
 CHECK_PUSH_SCRIPT="$DEV_DIR/../../src/check-push.sh"
 
-# Test configuration
-export DIR_REPOS="$DEV_DIR/git_repos"
-export DIR_COPIES="$DEV_DIR/copies"
-export CI_LOCK="$DEV_DIR/.ci-lock"
+# Test configuration (script uses DIR_BASE and derives DIR_REPOS, DIR_COPIES; CI_LOCK is a directory)
+export DIR_BASE="$DEV_DIR"
+export CI_LOCK="$DEV_DIR/.ci-lock.d"
 export VERB=2  # Verbose output
 export TIMEOUT=30  # Shorter timeout for testing
 export SLEEP_TIME=""  # Run once and exit
 
 echo "=== Testing check-push.sh ==="
-echo "Git repos directory: $DIR_REPOS"
-echo "Copies directory: $DIR_COPIES"
-echo "CI lock file: $CI_LOCK"
+echo "DIR_BASE: $DIR_BASE"
+echo "Git repos directory: $DIR_BASE/git_repos"
+echo "Copies directory: $DIR_BASE/copies"
+echo "CI lock directory: $CI_LOCK"
 echo ""
 
 # Check if check-push.sh exists
@@ -30,14 +30,14 @@ if [[ ! -f "$CHECK_PUSH_SCRIPT" ]]; then
 fi
 
 # Check if test repositories exist
-if [[ ! -d "$DIR_REPOS" ]] || [[ -z "$(ls -A "$DIR_REPOS" 2>/dev/null)" ]]; then
-    echo "Error: No test repositories found in $DIR_REPOS"
+if [[ ! -d "$DIR_BASE/git_repos" ]] || [[ -z "$(ls -A "$DIR_BASE/git_repos" 2>/dev/null)" ]]; then
+    echo "Error: No test repositories found in $DIR_BASE/git_repos"
     echo "Please run setup-test-repos.sh first"
     exit 1
 fi
 
-# Clean up any existing lock file
-rm -f "$CI_LOCK"
+# Clean up any existing lock directory (check-push.sh uses mkdir/rmdir for CI_LOCK)
+rm -rf "$CI_LOCK"
 
 # Make check-push.sh executable
 chmod +x "$CHECK_PUSH_SCRIPT"
@@ -51,4 +51,4 @@ bash "$CHECK_PUSH_SCRIPT" once
 echo ""
 echo "=== Test completed ==="
 echo "Check the copies directory for results:"
-ls -la "$DIR_COPIES"
+ls -la "$DIR_BASE/copies"

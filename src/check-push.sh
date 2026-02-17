@@ -1,19 +1,16 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -u
+set -o pipefail
 
-## global settings
-[[ -z $VERB ]] && VERB=1
-[[ -z $TIMEOUT ]] && TIMEOUT=600
-[[ -z $SLEEP_TIME ]] && SLEEP_TIME=360
+## global config settings
+: "${VERB:=1}"
+: "${TIMEOUT:=600}"
+: "${SLEEP_TIME:=360}"
+: "${CI_LOCK:=/tmp/.auto-reloader-lock.d}"
+: "${DIR_BASE:=/work}"
 
-# if VERB=0, keep super silent
-[[ $VERB = 0 ]] && exec>/dev/null
-
+## hard coded settings
 BR_WHITELIST="main master dev test alpha"
-
-[[ -z $DIR_REPOS ]] && DIR_REPOS=/work/git_repos
-[[ -z $DIR_COPIES ]] && DIR_COPIES=/work/copies
-[[ -z $DIR_SCRIPTS ]] && DIR_SCRIPTS=/work/scripts
-[[ -z $CI_LOCK ]] && CI_LOCK=/tmp/.ci-lock
 
 function _version_less_than {
   if [[ -z $1 ]] || [[ -z $2 ]]; then
@@ -39,26 +36,47 @@ sys.exit(0 if n1 < n2 else (1 if n1 > n2 else 2))
 
 function _logging {
     local _level=$1; shift
-    local _datetime=`/bin/date '+%m-%d %H:%M:%S>'`
+    local _datetime=$(/bin/date '+%m-%d %H:%M:%S>')
     if [ $_level -le $VERB ]; then
-        echo $_datetime $*
+        echo $_datetime "$@"
     fi
 }
 function mustsay {
-    _logging 0 $*
+    _logging 0 "$@"
 }
 function say {
-    _logging 1 $*
+    _logging 1 "$@"
 }
 function verbose {
-    _logging 2 $*
+    _logging 2 "$@"
+}
+function err {
+  mustsay "ERROR: $@"
 }
 
+# file lock
+function acquire_lock {
+  # mkdir is atomic; only one process can create the dir
+  # max waiting times will be 100
+  for _i in {1..100}; do
+    mkdir "$CI_LOCK" 2>/dev/null && return 0
+    sleep 1
+  done
+
+  err "failed to acquire lock after many tries, abort, please clean up stale lock manually"
+  exit 1
+}
+function release_lock {
+  rmdir "$CI_LOCK" 2>/dev/null || true
+}
+# make sure clean up locks on exit
+trap release_lock EXIT INT TERM
+
 function _timeout {
-    if which timeout &>/dev/null; then
-        timeout $TIMEOUT $*
+    if command -v timeout &>/dev/null; then
+        timeout $TIMEOUT "$@"
     else
-        $*
+        "$@"
     fi
 }
 
@@ -67,9 +85,9 @@ function _handle_post {
     local _post_path=$1
     local _cp_path=$2
 
-    if [[ -f ${_post_path} ]]; then
+    if [[ -f "${_post_path}" ]]; then
       say "..running post scripts [ $_post_path ]"
-      cd ${_cp_path}
+      cd "${_cp_path}"
       bash "${_post_path}"
       cd - > /dev/null
     fi
@@ -79,11 +97,13 @@ function _handle_docker {
     # restart docker instance
     local _docker_path=$1
 
-    if [[ -f ${_docker_path} ]]; then
-      _docker_name=`cat ${_docker_path}`
+    command -v docker >/dev/null || { say "WARN: docker cli not found, skip docker restart"; return; }
+
+    if [[ -f "${_docker_path}" ]]; then
+      local _docker_name=$(cat "${_docker_path}")
 
       say "..restarting docker [ $_docker_name ]"
-      docker restart $_docker_name > /dev/null
+      _timeout docker restart "${_docker_name}" > /dev/null || err "failed to restart docker [ $_docker_name ]"
       unset _docker_name
     fi
 }
@@ -93,11 +113,11 @@ function checkout_and_copy_tag {
   local _repo=$1
   local _tag=$2
 
-  _cp_path="${DIR_COPIES}/${_repo}.prod.${_tag}"
-  _arch_path="${DIR_COPIES}/.archives/${_repo}.prod.${_tag}"
-  _post_path="${DIR_COPIES}/${_repo}.prod.post"
-  _docker_path="${DIR_COPIES}/${_repo}.prod.docker"
-  _latest_path="${DIR_COPIES}/${_repo}.prod.latest"
+  local _cp_path="${DIR_COPIES}/${_repo}.prod.${_tag}"
+  local _arch_path="${DIR_COPIES}/.archives/${_repo}.prod.${_tag}"
+  local _post_path="${DIR_COPIES}/${_repo}.prod.post"
+  local _docker_path="${DIR_COPIES}/${_repo}.prod.docker"
+  local _latest_path="${DIR_COPIES}/${_repo}.prod.latest"
 
   # if path exists, skip
   [[ -d $_cp_path ]] && return
@@ -112,8 +132,8 @@ function checkout_and_copy_tag {
   mkdir -p $_cp_path && rsync -a --delete --exclude .git . $_cp_path && say "..copy files for new RELEASE [ $_tag ]"
 
   if [[ -L $_latest_path ]]; then
-    _cur_latest_path=$(readlink $_latest_path)
-    _cur_latest_tag=$(basename $_cur_latest_path | sed 's/.*.prod.//')
+    local _cur_latest_path=$(readlink $_latest_path)
+    local _cur_latest_tag=$(basename $_cur_latest_path | sed 's/.*\.prod\.//')
 
     if _version_less_than $_cur_latest_tag $_tag; then
       rm -f $_latest_path
@@ -144,11 +164,11 @@ function checkout_and_copy_br {
   [[ ! -d $_cp_path ]] && mkdir -p $_cp_path && touch $_cp_path/.skipping && say "..init dir of [ $_br ]"
 
   # checking flags
-  if [[ -f ${_cp_path}/.debugging ]]; then
+  if [[ -f "${_cp_path}/.debugging" ]]; then
     verbose "..skip debugging work copy of branch [ $_br ]"
     return
   fi
-  if [[ -f ${_cp_path}/.skipping ]]; then
+  if [[ -f "${_cp_path}/.skipping" ]]; then
     verbose "..skip unused branch [ $_br ]"
     return
   fi
@@ -157,27 +177,27 @@ function checkout_and_copy_br {
   git checkout -q -f $_br
 
   # check whether need to init all files at first
-  [[ -z `/bin/ls $_cp_path` ]] && rsync -a --delete --exclude .git . $_cp_path && say "..copy files for [ $_br ]"
+  [[ -z $(/bin/ls $_cp_path) ]] && rsync -a --delete --exclude .git . $_cp_path && say "..copy files for [ $_br ]"
 
-  _diff=`git diff --name-only $_br origin/$_br`
+  local _diff=$(git diff --name-only $_br origin/$_br)
 
   # add a debug trigger
-  if [[ -f ${_cp_path}/.trigger ]]; then
-    rm -f ${_cp_path}/.trigger # burn after reading
+  if [[ -f "${_cp_path}/.trigger" ]]; then
+    rm -f "${_cp_path}/.trigger" # burn after reading
 
-    if [[ -z $_diff ]]; then
+    if [[ -z "${_diff}" ]]; then
       say "..having a debug try"
       _diff="debugging"
     fi
   fi
 
-  if [[ -n $_diff ]]; then
+  if [[ -n "${_diff}" ]]; then
       say "..UPDATING branch [ $_br ]"
       git checkout -q -B $_br origin/$_br || {
           mustsay "..failed git checkout and skip"
           return
       }
-      if [[ -f ${_cp_path}/.no-cleanup ]]; then
+      if [[ -f "${_cp_path}/.no-cleanup" ]]; then
         # if ./no-cleanup existing, do not clean up cached or built files
         rsync -a --exclude .git . $_cp_path
       else
@@ -202,18 +222,18 @@ function fetch_and_check {
   local _release
   local _bp
 
-  cd $_repo
+  cd $_repo || { err "failed to cd to $_repo, critical issue, skip"; return 1; }
 
   # clean up trash file from last time crash
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
 
   say "..fetching repo ..."
-  _timeout git fetch -q --all --tags --prune
+  _timeout git fetch -q --all --tags --prune || { err "failed to fetch repo $_repo, skip"; return 1; }
 
   #for _br in `ls .git/refs/remotes/origin/`; do
-  for _br in `git branch -r  | grep -v HEAD | sed -e 's/.*origin\///'`; do
+  for _br in $(git branch -r | grep -v HEAD | sed -e 's/.*origin\///'); do
     [[ $_br = 'HEAD' ]] && continue
-    (echo $_br | grep -q '/') && continue
+    (echo "$_br" | grep -q '/') && continue
 
     # check branch whitelist || repo dir exists already
     if [[ $BR_WHITELIST =~ (^|[[:space:]])$_br($|[[:space:]]) ]] || [[ -d "${DIR_COPIES}/${_repo}.${_br}" ]]; then
@@ -224,7 +244,7 @@ function fetch_and_check {
     fi
   done
 
-  for _release in `git tag -l  | grep '^v[Q0-9.]\+$' `; do
+  for _release in $(git tag -l | grep '^v[Q0-9.]\+$'); do
     checkout_and_copy_tag $_repo $_release
 
     # heart beat
@@ -234,7 +254,7 @@ function fetch_and_check {
   done
 
   # clean up deprected dirs in "work/copies"
-  for _bp in `/bin/ls -d ${DIR_COPIES}/${_repo}.*/`; do
+  for _bp in $(/bin/ls -d ${DIR_COPIES}/${_repo}.*/); do
 
       (echo $_bp | grep -q to-be-removed) && continue
       (echo $_bp | grep -q .latest) && continue
@@ -242,67 +262,85 @@ function fetch_and_check {
       _bp=${_bp%/}
 
       # manually marked as deprecated
-      if [ -f $_bp/.stopping ]; then
+      if [ -f "${_bp}/.stopping" ]; then
         # clean up all content
-        rm -rf $_bp
-        mkdir -p $_bp
-        touch $_bp/.skipping
-        touch $_bp/.living
+        rm -rf "${_bp}"
+        mkdir -p "${_bp}"
+        touch "${_bp}/.skipping"
+        touch "${_bp}/.living"
       fi
 
-      if [ -f $_bp/.living ]; then
-        rm -f "$_bp/.living"
+      if [ -f "${_bp}/.living" ]; then
+        rm -f "${_bp}/.living"
       else
-        say "..cleaning up deprecated dir: $_bp"
+        say "..cleaning up deprecated dir: ${_bp}"
         #rm -rf $_bp
         #rm -f ${_bp}.*
-        mv $_bp $_bp.to-be-removed
+        mv "$_bp" "${_bp}.to-be-removed"
       fi
   done
 
   cd - > /dev/null
 }
 
-function main {
-  # working dir
-  [[ -d $DIR_REPOS ]] || mkdir -p $DIR_REPOS
-
-  # check scripts dir and copy scripts in docker to external
-  [[ ! -d $DIR_SCRIPTS ]] && {
-    # only copy scripts once when creating the dir
-    mkdir -p $DIR_SCRIPTS
-    rsync -a /scripts/* $DIR_SCRIPTS
-  }
+function main_loop {
+  local _repo
+  
+  cd $DIR_REPOS || { err "failed to cd to DIR_REPOS: $DIR_REPOS, critical issue, abort"; exit 1; }
 
   # loop like a daemon
   while true; do
-    # Acquire file-lock
-    while [[ -f $CI_LOCK ]]; do sleep 1; done
-    touch $CI_LOCK
 
-    cd $DIR_REPOS
-    for _repo in * ; do
-      if [[ -d $_repo/.git ]]; then
-        mustsay "checking git status for <$_repo>"
-        fetch_and_check $_repo
+    # Acquire lock
+    acquire_lock
+
+    for _repo in $(/bin/ls -d *); do
+      if [[ -d "${_repo}/.git" ]]; then
+        mustsay "checking git status for <${_repo}> ..."
+        fetch_and_check "${_repo}"
       fi
     done
 
     # Release lock
-    rm -f $CI_LOCK
+    release_lock
 
-    # if SLEEP_TIME is not set, means run once and exit
-    [[ -z $SLEEP_TIME ]] && exit 0
+    # if SLEEP_TIME value is 0, means run once and exit
+    [[ $SLEEP_TIME == 0 ]] && exit 0
 
     say "waiting for next check ..."
     sleep $SLEEP_TIME
   done
 }
 
-## __main__ start here
-if [[ $1 == "once" ]]; then
-  unset SLEEP_TIME
-  main
+### __main__ ###
+
+# check for required commands
+for c in git rsync; do
+  command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
+done
+# check for optional 'docker' support
+command -v docker >/dev/null || { say "docker cli not found, will skip docker restart handling"; }
+
+## check and init all working dirs
+# 1. check the DIR_BASE is available (sanitize&check at the time)
+_ORIG_DIR_BASE=$DIR_BASE
+DIR_BASE=$(realpath $DIR_BASE 2>/dev/null) || { err "base working dir not found: $_ORIG_DIR_BASE"; exit 1; }
+# subdirs
+DIR_REPOS=${DIR_BASE}/git_repos
+DIR_COPIES=${DIR_BASE}/copies
+
+# 2. DIR_BASE/copies is writable
+[[ -d $DIR_COPIES ]] || mkdir -p $DIR_COPIES || { err "failed to create DIR_COPIES: $DIR_COPIES"; exit 1; }
+[[ -w $DIR_COPIES ]] || { err "DIR_COPIES not writable: $DIR_COPIES"; exit 1; }
+# 3. init repo dir
+[[ -d $DIR_REPOS ]] || mkdir -p $DIR_REPOS
+
+# if VERB=0, keep super silent
+[[ $VERB = 0 ]] && exec >/dev/null 2>&1
+
+if [[ "${1:-}" == "once" ]]; then
+  SLEEP_TIME=0
+  main_loop
 else
-  main
+  main_loop
 fi
