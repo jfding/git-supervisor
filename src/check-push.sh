@@ -5,7 +5,7 @@ set -o pipefail
 ## global config settings
 : "${VERB:=1}"
 : "${TIMEOUT:=600}"
-: "${SLEEP_TIME:=360}"
+: "${SLEEP_TIME:=120}"
 : "${CI_LOCK:=/tmp/.auto-reloader-lock.d}"
 : "${DIR_BASE:=/work}"
 
@@ -332,8 +332,12 @@ function main_loop {
     # Release lock
     release_lock "${CI_LOCK}"
 
-    # if SLEEP_TIME value is 0, means run once and exit
-    [[ $SLEEP_TIME == 0 ]] && exit 0
+    if [[ "${1:-}" == "once" ]]; then
+      exit 0
+    fi
+
+    # if SLEEP_TIME value is empty or value is 0, means run once and exit
+    [[ $SLEEP_TIME == "" ]] || [[ $SLEEP_TIME == "0" ]] && exit 0
 
     say "waiting for next check ..."
     sleep $SLEEP_TIME
@@ -358,17 +362,17 @@ DIR_REPOS=${DIR_BASE}/git_repos
 DIR_COPIES=${DIR_BASE}/copies
 
 # 2. DIR_BASE/copies is writable
-[[ -d $DIR_COPIES ]] || mkdir -p $DIR_COPIES || { err "failed to create DIR_COPIES: $DIR_COPIES"; exit 1; }
-[[ -w $DIR_COPIES ]] || { err "DIR_COPIES not writable: $DIR_COPIES"; exit 1; }
+[[ -d $DIR_COPIES ]] || mkdir -p $DIR_COPIES || { err "failed to create COPIES dir: $DIR_COPIES"; exit 1; }
+[[ -w $DIR_COPIES ]] ||                         { err "COPIES dir not writable: $DIR_COPIES"; exit 1; }
+
 # 3. init repo dir
 [[ -d $DIR_REPOS ]] || mkdir -p $DIR_REPOS
 
 # if VERB=0, keep super silent
 [[ $VERB = 0 ]] && exec >/dev/null 2>&1
 
-if [[ "${1:-}" == "once" ]]; then
-  SLEEP_TIME=0
-  main_loop
+if [[ "${1:-}" == "--once" ]]; then
+  main_loop once
 else
   main_loop
 fi

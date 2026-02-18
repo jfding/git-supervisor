@@ -39,13 +39,11 @@ def webhook():
         # Run check-push script (Rust or bash version)
         if USE_RUST:
             script_path = '/scripts/check-push-rs'
-            args = ['--once']
         else:
             script_path = '/scripts/check-push.sh'
-            args = ['once']
 
         try:
-            subprocess.run([script_path] + args, check=True)
+            subprocess.run([script_path] + ['--once'], check=True)
             return jsonify({'status': 'CI job started', 'version': 'rust' if USE_RUST else 'bash'}), 200
         except subprocess.CalledProcessError as e:
             return jsonify({'error': f'Script execution failed: {e}'}), 500
