@@ -11,6 +11,7 @@ set -o pipefail
 
 ## hard coded settings
 BR_WHITELIST="main master dev test alpha"
+BASHPID=$(echo $$ | tr -d '\n')
 
 function _version_less_than {
   if [[ -z $1 ]] || [[ -z $2 ]]; then
@@ -38,7 +39,11 @@ function _logging {
     local _level=$1; shift
     local _datetime=$(/bin/date '+%m-%d %H:%M:%S>')
     if [ $_level -le $VERB ]; then
-        echo $_datetime "$@"
+        if [[ -n "${LOG_PREFIX:-}" ]]; then
+          echo $_datetime "${LOG_PREFIX}" "$@"
+        else
+          echo $_datetime "$@"
+        fi
     fi
 }
 function mustsay {
@@ -56,21 +61,33 @@ function err {
 
 # file lock
 function acquire_lock {
+  local _lock_path=$1
   # mkdir is atomic; only one process can create the dir
   # max waiting times will be 100
   for _i in {1..100}; do
-    mkdir "$CI_LOCK" 2>/dev/null && return 0
+    if mkdir "$_lock_path" 2>/dev/null; then
+      echo "${BASHPID}" > "${_lock_path}/owner.pid"
+      return 0
+    fi
     sleep 1
   done
 
-  err "failed to acquire lock after many tries, abort, please clean up stale lock manually"
-  exit 1
+  err "failed to acquire lock after many tries: ${_lock_path}"
+  return 1
 }
 function release_lock {
-  rmdir "$CI_LOCK" 2>/dev/null || true
+  local _lock_path=$1
+  local _owner_file="${_lock_path}/owner.pid"
+
+  [[ -d "${_lock_path}" ]] || return 0
+  [[ -f "${_owner_file}" ]] || return 0
+  [[ $(cat "${_owner_file}") == "${BASHPID}" ]] || return 0
+
+  rm -f "${_owner_file}"
+  rmdir "${_lock_path}" 2>/dev/null || true
 }
 # make sure clean up locks on exit
-trap release_lock EXIT INT TERM
+trap 'release_lock "${CI_LOCK}"' EXIT INT TERM
 
 function _timeout {
     if command -v timeout &>/dev/null; then
@@ -285,6 +302,8 @@ function fetch_and_check {
 
 function main_loop {
   local _repo
+  local _worker_pid
+  local _worker_failed=0
   
   cd $DIR_REPOS || { err "failed to cd to DIR_REPOS: $DIR_REPOS, critical issue, abort"; exit 1; }
 
@@ -292,17 +311,26 @@ function main_loop {
   while true; do
 
     # Acquire lock
-    acquire_lock
+    acquire_lock "${CI_LOCK}" || exit 1
 
     for _repo in $(/bin/ls -d *); do
       if [[ -d "${_repo}/.git" ]]; then
         mustsay "checking git status for <${_repo}> ..."
-        fetch_and_check "${_repo}"
+        (
+          LOG_PREFIX="[repo:${_repo}]"
+          fetch_and_check "${_repo}"
+        ) &
       fi
     done
 
+    for _worker_pid in $(jobs -pr); do
+      wait "${_worker_pid}" || _worker_failed=1
+    done
+    [[ "${_worker_failed}" == "1" ]] && err "one or more repo workers failed in this round"
+    _worker_failed=0
+
     # Release lock
-    release_lock
+    release_lock "${CI_LOCK}"
 
     # if SLEEP_TIME value is 0, means run once and exit
     [[ $SLEEP_TIME == 0 ]] && exit 0
