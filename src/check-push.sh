@@ -196,39 +196,52 @@ function checkout_and_copy_br {
     git archive origin/$_br | tar -x -C $_cp_path && echo -n "$_origin_ref" > "${_cp_path}/.git-rev" && say "..copy files for [ $_br ]"
   fi
 
-  local _diff=$(git diff --name-only $_br origin/$_br)
+  local _stored_ref
+  _stored_ref=$(cat "${_cp_path}/.git-rev" 2>/dev/null)
+  local _need_update=0
 
   # add a debug trigger
   if [[ -f "${_cp_path}/.trigger" ]]; then
     rm -f "${_cp_path}/.trigger" # burn after reading
-
-    if [[ -z "${_diff}" ]]; then
-      say "..having a debug try"
-      _diff="debugging"
-    fi
+    say "..having a debug try"
+    _need_update=1
   fi
 
-  if [[ -n "${_diff}" ]]; then
-      say "..UPDATING branch [ $_br ]"
-      git checkout -q -B $_br origin/$_br || {
-          mustsay "..failed git checkout and skip"
-          return
-      }
-      if [[ -f "${_cp_path}/.no-cleanup" ]]; then
-        # if ./no-cleanup existing, do not clean up cached or built files
-        rsync -a --exclude .git . $_cp_path
-      else
-        rsync -a --delete --exclude .git . $_cp_path
-      fi
+  # remote has new commits? (count commits on origin not reachable from stored ref)
+  if [[ $_need_update -eq 0 ]] && [[ -n "${_stored_ref}" ]]; then
+    local _behind
+    _behind=$(git rev-list --count "${_stored_ref}..origin/$_br" 2>/dev/null)
+    if [[ "${_behind:-1}" == "0" ]]; then
+      verbose "..no change of branch [ $_br ], skip"
+      return
+    fi
+  fi
+  _need_update=1
 
-      # post scripts
-      _handle_post ${_post_path} ${_cp_path}
+  # only refresh when copy dir already has content (initial copy is handled above)
+  if [[ $_need_update -eq 1 ]] && [[ -n $(/bin/ls -A $_cp_path 2>/dev/null) ]]; then
+    say "..UPDATING branch [ $_br ]"
+    if [[ -f "${_cp_path}/.no-cleanup" ]]; then
+      # overwrite only, do not remove extra files
+      git archive origin/$_br | tar -x -C $_cp_path
+    else
+      # full refresh: extract to new dir, preserve flags, then mv into place
+      local _staging="${_cp_path}.staging.$$"
+      mkdir -p "$_staging"
+      git archive origin/$_br | tar -x -C "$_staging"
+      for _f in .no-cleanup .living .skipping .debugging; do
+        [[ -e "${_cp_path}/${_f}" ]] && cp -p "${_cp_path}/${_f}" "${_staging}/"
+      done
+      rm -rf "${_cp_path}"
+      mv "${_staging}" "${_cp_path}"
+    fi
+    echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
 
-      # restart docker instance
-      _handle_docker ${_docker_path}
+    # post scripts
+    _handle_post ${_post_path} ${_cp_path}
 
-      else
-    verbose "..no change of branch [ $_br ], skip"
+    # restart docker instance
+    _handle_docker ${_docker_path}
   fi
 }
 
