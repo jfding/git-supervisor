@@ -46,7 +46,7 @@ echo "Running check-push.sh..."
 echo ""
 
 # Run the script
-bash "$CHECK_PUSH_SCRIPT" once
+bash "$CHECK_PUSH_SCRIPT" --once
 
 echo ""
 echo "=== Test completed ==="

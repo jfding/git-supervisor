@@ -5,12 +5,13 @@ set -o pipefail
 ## global config settings
 : "${VERB:=1}"
 : "${TIMEOUT:=600}"
-: "${SLEEP_TIME:=360}"
+: "${SLEEP_TIME:=120}"
 : "${CI_LOCK:=/tmp/.auto-reloader-lock.d}"
 : "${DIR_BASE:=/work}"
 
 ## hard coded settings
 BR_WHITELIST="main master dev test alpha"
+BASHPID=$(echo $$ | tr -d '\n')
 
 function _version_less_than {
   if [[ -z $1 ]] || [[ -z $2 ]]; then
@@ -38,7 +39,11 @@ function _logging {
     local _level=$1; shift
     local _datetime=$(/bin/date '+%m-%d %H:%M:%S>')
     if [ $_level -le $VERB ]; then
-        echo $_datetime "$@"
+        if [[ -n "${LOG_PREFIX:-}" ]]; then
+          echo $_datetime "${LOG_PREFIX}" "$@"
+        else
+          echo $_datetime "$@"
+        fi
     fi
 }
 function mustsay {
@@ -56,21 +61,33 @@ function err {
 
 # file lock
 function acquire_lock {
+  local _lock_path=$1
   # mkdir is atomic; only one process can create the dir
   # max waiting times will be 100
   for _i in {1..100}; do
-    mkdir "$CI_LOCK" 2>/dev/null && return 0
+    if mkdir "$_lock_path" 2>/dev/null; then
+      echo "${BASHPID}" > "${_lock_path}/owner.pid"
+      return 0
+    fi
     sleep 1
   done
 
-  err "failed to acquire lock after many tries, abort, please clean up stale lock manually"
-  exit 1
+  err "failed to acquire lock after many tries: ${_lock_path}"
+  return 1
 }
 function release_lock {
-  rmdir "$CI_LOCK" 2>/dev/null || true
+  local _lock_path=$1
+  local _owner_file="${_lock_path}/owner.pid"
+
+  [[ -d "${_lock_path}" ]] || return 0
+  [[ -f "${_owner_file}" ]] || return 0
+  [[ $(cat "${_owner_file}") == "${BASHPID}" ]] || return 0
+
+  rm -f "${_owner_file}"
+  rmdir "${_lock_path}" 2>/dev/null || true
 }
 # make sure clean up locks on exit
-trap release_lock EXIT INT TERM
+trap 'release_lock "${CI_LOCK}"' EXIT INT TERM
 
 function _timeout {
     if command -v timeout &>/dev/null; then
@@ -125,11 +142,8 @@ function checkout_and_copy_tag {
   # if path exists with dot prefix, skip
   [[ -d $_arch_path ]] && return
   
-  # start to work on this br
-  git checkout -q -f $_tag
-
-  # check whether need to init all files at first
-  mkdir -p $_cp_path && rsync -a --delete --exclude .git . $_cp_path && say "..copy files for new RELEASE [ $_tag ]"
+  # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
+  mkdir -p $_cp_path && git archive $_tag | tar -x -C $_cp_path && say "..copy files for new RELEASE [ $_tag ]"
 
   if [[ -L $_latest_path ]]; then
     local _cur_latest_path=$(readlink $_latest_path)
@@ -173,45 +187,61 @@ function checkout_and_copy_br {
     return
   fi
 
-  # start to work on this br
-  git checkout -q -f $_br
+  # current commit at origin (no checkout in repo, ref unchanged)
+  local _origin_ref
+  _origin_ref=$(git rev-parse origin/$_br 2>/dev/null) || { mustsay "..no origin/$_br, skip"; return; }
 
-  # check whether need to init all files at first
-  [[ -z $(/bin/ls $_cp_path) ]] && rsync -a --delete --exclude .git . $_cp_path && say "..copy files for [ $_br ]"
+  # initial copy when dir is empty
+  if [[ -z $(/bin/ls -A $_cp_path 2>/dev/null) ]]; then
+    git archive origin/$_br | tar -x -C $_cp_path && echo -n "$_origin_ref" > "${_cp_path}/.git-rev" && say "..copy files for [ $_br ]"
+  fi
 
-  local _diff=$(git diff --name-only $_br origin/$_br)
+  local _stored_ref
+  _stored_ref=$(cat "${_cp_path}/.git-rev" 2>/dev/null)
+  local _need_update=0
 
   # add a debug trigger
   if [[ -f "${_cp_path}/.trigger" ]]; then
     rm -f "${_cp_path}/.trigger" # burn after reading
-
-    if [[ -z "${_diff}" ]]; then
-      say "..having a debug try"
-      _diff="debugging"
-    fi
+    say "..having a debug try"
+    _need_update=1
   fi
 
-  if [[ -n "${_diff}" ]]; then
-      say "..UPDATING branch [ $_br ]"
-      git checkout -q -B $_br origin/$_br || {
-          mustsay "..failed git checkout and skip"
-          return
-      }
-      if [[ -f "${_cp_path}/.no-cleanup" ]]; then
-        # if ./no-cleanup existing, do not clean up cached or built files
-        rsync -a --exclude .git . $_cp_path
-      else
-        rsync -a --delete --exclude .git . $_cp_path
-      fi
+  # remote has new commits? (count commits on origin not reachable from stored ref)
+  if [[ $_need_update -eq 0 ]] && [[ -n "${_stored_ref}" ]]; then
+    local _behind
+    _behind=$(git rev-list --count "${_stored_ref}..origin/$_br" 2>/dev/null)
+    if [[ "${_behind:-1}" == "0" ]]; then
+      verbose "..no change of branch [ $_br ], skip"
+      return
+    fi
+  fi
+  _need_update=1
 
-      # post scripts
-      _handle_post ${_post_path} ${_cp_path}
+  # only refresh when copy dir already has content (initial copy is handled above)
+  if [[ $_need_update -eq 1 ]] && [[ -n $(/bin/ls -A $_cp_path 2>/dev/null) ]]; then
+    say "..UPDATING branch [ $_br ]"
+    if [[ -f "${_cp_path}/.no-cleanup" ]]; then
+      # overwrite only, do not remove extra files
+      git archive origin/$_br | tar -x -C $_cp_path
+    else
+      # full refresh: extract to new dir, preserve flags, then mv into place
+      local _staging="${_cp_path}.staging.$$"
+      mkdir -p "$_staging"
+      git archive origin/$_br | tar -x -C "$_staging"
+      for _f in .no-cleanup .living .skipping .debugging; do
+        [[ -e "${_cp_path}/${_f}" ]] && cp -p "${_cp_path}/${_f}" "${_staging}/"
+      done
+      rm -rf "${_cp_path}"
+      mv "${_staging}" "${_cp_path}"
+    fi
+    echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
 
-      # restart docker instance
-      _handle_docker ${_docker_path}
+    # post scripts
+    _handle_post ${_post_path} ${_cp_path}
 
-      else
-    verbose "..no change of branch [ $_br ], skip"
+    # restart docker instance
+    _handle_docker ${_docker_path}
   fi
 }
 
@@ -285,6 +315,8 @@ function fetch_and_check {
 
 function main_loop {
   local _repo
+  local _worker_pid
+  local _worker_failed=0
   
   cd $DIR_REPOS || { err "failed to cd to DIR_REPOS: $DIR_REPOS, critical issue, abort"; exit 1; }
 
@@ -292,20 +324,33 @@ function main_loop {
   while true; do
 
     # Acquire lock
-    acquire_lock
+    acquire_lock "${CI_LOCK}" || exit 1
 
     for _repo in $(/bin/ls -d *); do
       if [[ -d "${_repo}/.git" ]]; then
         mustsay "checking git status for <${_repo}> ..."
-        fetch_and_check "${_repo}"
+        (
+          LOG_PREFIX="[repo:${_repo}]"
+          fetch_and_check "${_repo}"
+        ) &
       fi
     done
 
-    # Release lock
-    release_lock
+    for _worker_pid in $(jobs -pr); do
+      wait "${_worker_pid}" || _worker_failed=1
+    done
+    [[ "${_worker_failed}" == "1" ]] && err "one or more repo workers failed in this round"
+    _worker_failed=0
 
-    # if SLEEP_TIME value is 0, means run once and exit
-    [[ $SLEEP_TIME == 0 ]] && exit 0
+    # Release lock
+    release_lock "${CI_LOCK}"
+
+    if [[ "${1:-}" == "once" ]]; then
+      exit 0
+    fi
+
+    # if SLEEP_TIME value is empty or value is 0, means run once and exit
+    [[ $SLEEP_TIME == "" ]] || [[ $SLEEP_TIME == "0" ]] && exit 0
 
     say "waiting for next check ..."
     sleep $SLEEP_TIME
@@ -315,7 +360,7 @@ function main_loop {
 ### __main__ ###
 
 # check for required commands
-for c in git rsync; do
+for c in git tar; do
   command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
 done
 # check for optional 'docker' support
@@ -330,17 +375,17 @@ DIR_REPOS=${DIR_BASE}/git_repos
 DIR_COPIES=${DIR_BASE}/copies
 
 # 2. DIR_BASE/copies is writable
-[[ -d $DIR_COPIES ]] || mkdir -p $DIR_COPIES || { err "failed to create DIR_COPIES: $DIR_COPIES"; exit 1; }
-[[ -w $DIR_COPIES ]] || { err "DIR_COPIES not writable: $DIR_COPIES"; exit 1; }
+[[ -d $DIR_COPIES ]] || mkdir -p $DIR_COPIES || { err "failed to create COPIES dir: $DIR_COPIES"; exit 1; }
+[[ -w $DIR_COPIES ]] ||                         { err "COPIES dir not writable: $DIR_COPIES"; exit 1; }
+
 # 3. init repo dir
 [[ -d $DIR_REPOS ]] || mkdir -p $DIR_REPOS
 
 # if VERB=0, keep super silent
 [[ $VERB = 0 ]] && exec >/dev/null 2>&1
 
-if [[ "${1:-}" == "once" ]]; then
-  SLEEP_TIME=0
-  main_loop
+if [[ "${1:-}" == "--once" ]]; then
+  main_loop once
 else
   main_loop
 fi
