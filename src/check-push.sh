@@ -142,11 +142,8 @@ function checkout_and_copy_tag {
   # if path exists with dot prefix, skip
   [[ -d $_arch_path ]] && return
   
-  # start to work on this br
-  git checkout -q -f $_tag
-
-  # check whether need to init all files at first
-  mkdir -p $_cp_path && rsync -a --delete --exclude .git . $_cp_path && say "..copy files for new RELEASE [ $_tag ]"
+  # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
+  mkdir -p $_cp_path && git archive $_tag | tar -x -C $_cp_path && say "..copy files for new RELEASE [ $_tag ]"
 
   if [[ -L $_latest_path ]]; then
     local _cur_latest_path=$(readlink $_latest_path)
@@ -190,11 +187,14 @@ function checkout_and_copy_br {
     return
   fi
 
-  # start to work on this br
-  git checkout -q -f $_br
+  # current commit at origin (no checkout in repo, ref unchanged)
+  local _origin_ref
+  _origin_ref=$(git rev-parse origin/$_br 2>/dev/null) || { mustsay "..no origin/$_br, skip"; return; }
 
-  # check whether need to init all files at first
-  [[ -z $(/bin/ls $_cp_path) ]] && rsync -a --delete --exclude .git . $_cp_path && say "..copy files for [ $_br ]"
+  # initial copy when dir is empty
+  if [[ -z $(/bin/ls -A $_cp_path 2>/dev/null) ]]; then
+    git archive origin/$_br | tar -x -C $_cp_path && echo -n "$_origin_ref" > "${_cp_path}/.git-rev" && say "..copy files for [ $_br ]"
+  fi
 
   local _diff=$(git diff --name-only $_br origin/$_br)
 
@@ -347,7 +347,7 @@ function main_loop {
 ### __main__ ###
 
 # check for required commands
-for c in git rsync; do
+for c in git tar; do
   command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
 done
 # check for optional 'docker' support
