@@ -156,4 +156,11 @@ hosts:
         let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.dir_base_for_host("h"), PathBuf::from("/var/work"));
     }
+
+    #[test]
+    fn invalid_yaml_fails() {
+        let yaml = "hosts:\n  bad: [unclosed";
+        let result: Result<CentralConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
 }
