@@ -1,0 +1,4 @@
+hosts:
+  local:
+    ssh_target: localhost
+    repos: []
