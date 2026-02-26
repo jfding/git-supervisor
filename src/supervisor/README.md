@@ -38,13 +38,13 @@ Binary: `target/release/supervisor`.
 
 ```bash
 # Validate config and print what would be done (no SSH)
-supervisor --config supervisor.yaml validate
+supervisor validate [CONFIG]
 
 # Push to remotes: create dirs and ensure repos
-supervisor --config supervisor.yaml push
+supervisor push [CONFIG]
 ```
 
-- Default config path: `./supervisor.yaml`.
+- Config is an optional argument to each subcommand; default: `deployments.yaml`.
 - **validate**: load and validate the config, then print what push would do per host (no SSH).
 - **push**: create dirs and ensure repos on each remote over SSH.
 - Remotes must have **SSH** access (key-based) and **git** installed. The supervisor only creates `dir_repos`/`dir_copies` and ensures each listed repo is cloned or fetched; it does not push any daemon config or start the daemon.

@@ -5,9 +5,6 @@ use supervisor::{run_push, run_validate, CentralConfig};
 #[derive(Parser)]
 #[command(name = "supervisor")]
 struct Cli {
-    #[arg(long, default_value = "supervisor.yaml")]
-    config: PathBuf,
-
     #[command(subcommand)]
     command: Command,
 }
@@ -15,34 +12,42 @@ struct Cli {
 #[derive(clap::Subcommand)]
 enum Command {
     /// Validate config and print what would be done (no SSH)
-    Validate,
+    Validate(ConfigArg),
     /// Push to remotes: create dirs and ensure repos
-    Push,
+    Push(ConfigArg),
 }
 
-fn main() {
-    let cli = Cli::parse();
+#[derive(clap::Args)]
+struct ConfigArg {
+    /// Config file path
+    #[arg(default_value = "deployments.yaml")]
+    config: PathBuf,
+}
 
-    let config = match CentralConfig::load(&cli.config) {
+fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
+    match CentralConfig::load(path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error loading config: {}", e);
             std::process::exit(1);
         }
-    };
+    }
+}
 
-    match cli.command {
-        Command::Validate => {
-            if let Err(e) = run_validate(&config) {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        }
-        Command::Push => {
-            if let Err(e) = run_push(&config) {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        }
+fn main() {
+    let cli = Cli::parse();
+
+    let config_path = match &cli.command {
+        Command::Validate(args) | Command::Push(args) => &args.config,
+    };
+    let config = load_config_or_exit(config_path);
+
+    let result = match &cli.command {
+        Command::Validate(_) => run_validate(&config),
+        Command::Push(_) => run_push(&config),
+    };
+    if let Err(e) = result {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
     }
 }
