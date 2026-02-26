@@ -51,3 +51,24 @@ pub fn ensure_repo(
     );
     ssh::ssh_run(host, &command).with_context(|| format!("ensure_repo {} failed", repo.name))
 }
+
+/// Sandbox env defaults for running check-push.sh on the remote (one-shot, no daemon loop).
+const CHECK_PUSH_VERB: u8 = 1;
+const CHECK_PUSH_TIMEOUT: u32 = 600;
+const CHECK_PUSH_CI_LOCK: &str = "/tmp/.auto-reloader-lock.d";
+
+/// Run the embedded check-push.sh script on the remote host with sandbox env.
+/// dir_base is the host's work dir (e.g. /work); script runs with DIR_BASE set and --once.
+pub fn run_check_push_remote(host: &Host, dir_base: &Path, script: &str) -> Result<()> {
+    let dir_base_esc = escape_single_quoted(&dir_base.to_string_lossy());
+    // Export env vars then run script via stdin; script expects --once for one-shot.
+    let command = format!(
+        "env DIR_BASE={} VERB={} TIMEOUT={} SLEEP_TIME=0 CI_LOCK='{}' bash -s -- --once",
+        dir_base_esc,
+        CHECK_PUSH_VERB,
+        CHECK_PUSH_TIMEOUT,
+        CHECK_PUSH_CI_LOCK
+    );
+    ssh::ssh_run_with_stdin(host, &command, script.as_bytes())
+        .context("run check-push on remote failed")
+}

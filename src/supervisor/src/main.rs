@@ -14,7 +14,7 @@ enum Command {
     /// Validate config and print what would be done (no SSH)
     Validate(ConfigArg),
     /// Push to remotes: create dirs and ensure repos
-    Push(ConfigArg),
+    Push(PushArgs),
 }
 
 #[derive(clap::Args)]
@@ -22,6 +22,15 @@ struct ConfigArg {
     /// Config file path
     #[arg(default_value = "deployments.yaml")]
     config: PathBuf,
+}
+
+#[derive(clap::Args)]
+struct PushArgs {
+    #[command(flatten)]
+    config: ConfigArg,
+    /// After preparing repos, run check-push script on each remote (one-shot with sandbox env)
+    #[arg(long)]
+    checkout: bool,
 }
 
 fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
@@ -37,14 +46,15 @@ fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
 fn main() {
     let cli = Cli::parse();
 
-    let config_path = match &cli.command {
-        Command::Validate(args) | Command::Push(args) => &args.config,
+    let (config_path, checkout) = match &cli.command {
+        Command::Validate(args) => (&args.config, false),
+        Command::Push(args) => (&args.config.config, args.checkout),
     };
     let config = load_config_or_exit(config_path);
 
     let result = match &cli.command {
         Command::Validate(_) => run_validate(&config),
-        Command::Push(_) => run_push(&config),
+        Command::Push(_) => run_push(&config, checkout),
     };
     if let Err(e) = result {
         eprintln!("Error: {}", e);
