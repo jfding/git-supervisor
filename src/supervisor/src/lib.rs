@@ -38,7 +38,9 @@ pub fn run_push(config: &CentralConfig, checkout: bool) -> Result<(), anyhow::Er
         }
 
         for repo in config.repos_for_host(host_id) {
-            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo) {
+            // When running check-push (--checkout), skip fetch on existing repos.
+            let fetch_existing = !checkout;
+            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, fetch_existing) {
                 eprintln!("Warning: {}: {} (continuing)", host_id, e);
                 failures.push(format!("{}: {}", host_id, e));
             }
