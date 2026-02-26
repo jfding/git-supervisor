@@ -6,10 +6,10 @@ See the [design doc](../../docs/plans/2025-02-22-central-supervisor-design.md) f
 
 ## YAML schema
 
-- **Top level:** `defaults` (optional), `hosts` (required).
+- **Top level:** `defaults` (optional), `repos` (optional), `hosts` (required).
 - **Defaults:** `dir_base`, `branch_whitelist` (for documentation/future use).
-- **Per host:** `ssh_target` (e.g. `user@host`), optional `ssh_port`, `ssh_identity_file`, `dir_base`; `repos` (list of repo entries).
-- **Per repo:** `name`, `git_url`, optional `branch_whitelist`.
+- **Repos:** map of repo name → definition (`git_url`, optional `branch_whitelist`). Hosts reference these by name.
+- **Per host:** `ssh_target` (e.g. `user@host`), optional `ssh_port`, `ssh_identity_file`, `dir_base`; `repos` (list of repo names from the top-level `repos` map).
 
 Example:
 
@@ -17,13 +17,18 @@ Example:
 defaults:
   dir_base: /work
 
+repos:
+  webapp:
+    git_url: git@github.com:org/webapp.git
+  api:
+    git_url: git@github.com:org/api.git
+    branch_whitelist: [main]
+
 hosts:
   app-server:
     ssh_target: deploy@app-server.example.com
     ssh_identity_file: ~/.ssh/deploy_key
-    repos:
-      - name: webapp
-        git_url: git@github.com:org/webapp.git
+    repos: [webapp, api]
 ```
 
 ## Build

@@ -11,12 +11,14 @@ fn push_to_localhost() {
 defaults:
   dir_base: /tmp/supervisor-test
 
+repos:
+  tiny-repo:
+    git_url: https://github.com/git/git.git
+
 hosts:
   local:
     ssh_target: localhost
-    repos:
-      - name: tiny-repo
-        git_url: https://github.com/git/git.git
+    repos: [tiny-repo]
 "#;
     let path = std::env::temp_dir().join("supervisor-integration.yaml");
     std::fs::write(&path, yaml).unwrap();

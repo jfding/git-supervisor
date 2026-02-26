@@ -8,8 +8,9 @@ pub use config::{CentralConfig, Defaults, Host, Repo};
 
 /// Validate config: print what push would do without running SSH.
 pub fn run_validate(config: &CentralConfig) -> Result<(), anyhow::Error> {
-    for (host_id, host) in &config.hosts {
-        eprintln!("{}: would create dirs and ensure {} repo(s)", host_id, host.repos.len());
+    for host_id in config.hosts.keys() {
+        let repos = config.repos_for_host(host_id);
+        eprintln!("{}: would create dirs and ensure {} repo(s)", host_id, repos.len());
     }
     Ok(())
 }
@@ -31,8 +32,8 @@ pub fn run_push(config: &CentralConfig) -> Result<(), anyhow::Error> {
             continue;
         }
 
-        for repo in &host.repos {
-            if let Err(e) = ops::ensure_repo(host, &dir_repos, repo) {
+        for repo in config.repos_for_host(host_id) {
+            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo) {
                 eprintln!("Warning: {}: {} (continuing)", host_id, e);
                 failures.push(format!("{}: {}", host_id, e));
             }
