@@ -22,8 +22,9 @@ pub fn run_validate(config: &CentralConfig) -> Result<(), anyhow::Error> {
 
 /// Push to remotes: create dirs and ensure repos.
 /// If `checkout` is true, after preparing repos run the embedded check-push.sh on each host with sandbox env.
+/// If `no_fetch` is true, skip git fetch for existing repos (only clone when missing).
 /// Returns Err if any host failed (create_dirs or any ensure_repo, or check-push when checkout is true).
-pub fn run_push(config: &CentralConfig, checkout: bool) -> Result<(), anyhow::Error> {
+pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
@@ -52,8 +53,8 @@ pub fn run_push(config: &CentralConfig, checkout: bool) -> Result<(), anyhow::Er
         }
 
         for repo in config.repos_for_host(host_id) {
-            // When running check-push (--checkout), skip fetch on existing repos.
-            let fetch_existing = !checkout;
+            // When running check-push (--checkout) or --no-fetch, skip fetch on existing repos.
+            let fetch_existing = !checkout && !no_fetch;
             if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, fetch_existing) {
                 eprintln!("Warning: {}: {} (continuing)", host_id, e);
                 failures.push(format!("{}: {}", host_id, e));

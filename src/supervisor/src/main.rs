@@ -33,6 +33,9 @@ struct PushArgs {
     /// After preparing repos, run check-push script on each remote (one-shot with sandbox env)
     #[arg(long)]
     checkout: bool,
+    /// Skip git fetch for repos that already exist (only clone if missing)
+    #[arg(long)]
+    no_fetch: bool,
 }
 
 #[derive(clap::Args)]
@@ -60,16 +63,16 @@ fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
 fn main() {
     let cli = Cli::parse();
 
-    let (config_path, checkout) = match &cli.command {
-        Command::Validate(args) => (&args.config, false),
-        Command::Push(args) => (&args.config.config, args.checkout),
-        Command::Watch(args) => (&args.config.config, false),
+    let (config_path, checkout, no_fetch) = match &cli.command {
+        Command::Validate(args) => (&args.config, false, false),
+        Command::Push(args) => (&args.config.config, args.checkout, args.no_fetch),
+        Command::Watch(args) => (&args.config.config, false, false),
     };
     let config = load_config_or_exit(config_path);
 
     let result = match &cli.command {
         Command::Validate(_) => run_validate(&config),
-        Command::Push(_) => run_push(&config, checkout),
+        Command::Push(_) => run_push(&config, checkout, no_fetch),
         Command::Watch(args) => run_watch(&config, args.interval, args.timeout),
     };
     if let Err(e) = result {
