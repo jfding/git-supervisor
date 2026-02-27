@@ -29,6 +29,14 @@ pub fn run_push(config: &CentralConfig, checkout: bool) -> Result<(), anyhow::Er
         let dir_copies = config.dir_copies_for_host(host_id);
         let dir_base = config.dir_base_for_host(host_id);
 
+        if let Err(e) = ops::check_git_available(host)
+            .context(format!("host {}: check git", host_id))
+        {
+            eprintln!("Error: {}: {}", host_id, e);
+            failures.push(format!("{}: {}", host_id, e));
+            continue;
+        }
+
         if let Err(e) = ops::create_dirs(host, &dir_repos, &dir_copies)
             .context(format!("host {}: create_dirs", host_id))
         {

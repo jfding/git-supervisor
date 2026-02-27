@@ -10,6 +10,11 @@ fn escape_single_quoted(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Check that `git` is available on the remote host (run `git --version`).
+pub fn check_git_available(host: &Host) -> Result<()> {
+    ssh::ssh_run(host, "git --version").context("git not found or not runnable on remote (is git installed?)")
+}
+
 /// Create dir_repos and dir_copies on the remote host.
 pub fn create_dirs(
     host: &Host,
