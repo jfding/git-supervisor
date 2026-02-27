@@ -328,7 +328,7 @@ function main_loop {
 
     for _repo in $(/bin/ls -d *); do
       if [[ -d "${_repo}/.git" ]]; then
-        mustsay "checking git status for <${_repo}> ..."
+        mustsay "[repo:${_repo}] checking git status ..."
         (
           LOG_PREFIX="[repo:${_repo}]"
           fetch_and_check "${_repo}"

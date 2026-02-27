@@ -12,13 +12,13 @@ fn escape_single_quoted(s: &str) -> String {
 
 /// Check that `git` is available on the remote host (run `git --version`).
 pub fn check_git_available(host: &Host) -> Result<()> {
-    ssh::ssh_run(host, "git --version").context("git not found or not runnable on remote (is git installed?)")
+    ssh::ssh_run(host, "git --version > /dev/null 2>&1").context("git not found or not runnable on remote (is git installed?)")
 }
 
 /// Check that `docker` is available on the remote host (run `docker --version`).
 /// Returns Err if docker is not found or not runnable; used for optional warning only.
 pub fn check_docker_available(host: &Host) -> Result<()> {
-    ssh::ssh_run(host, "docker --version").context("docker not found or not runnable")
+    ssh::ssh_run(host, "docker --version > /dev/null 2>&1").context("docker not found or not runnable")
 }
 
 /// Create dir_repos and dir_copies on the remote host.
@@ -29,7 +29,7 @@ pub fn create_dirs(
 ) -> Result<()> {
     let r = escape_single_quoted(&dir_repos.to_string_lossy());
     let c = escape_single_quoted(&dir_copies.to_string_lossy());
-    let command = format!("mkdir -p {} {}", r, c);
+    let command = format!("mkdir -p {} {} 2>/dev/null", r, c);
     ssh::ssh_run(host, &command).context("create_dirs failed")
 }
 
@@ -63,9 +63,9 @@ pub fn ensure_repo(
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
-  echo -n 'New repo {}: '; git clone '{}' '{}'; \
+  echo -n 'New repo [{}]: '; git clone '{}' '{}'; \
 else \
-  echo -n 'Existing repo {}: '; (cd '{}' && git fetch --all --tags --prune); \
+  echo -n 'Existing repo [{}]: '; (cd '{}' && git fetch --all --tags --prune); \
 fi",
             dir_esc,
             name_esc,
@@ -79,9 +79,9 @@ fi",
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
-  echo -n 'New repo {}: '; git clone '{}' '{}'; \
+  echo -n 'New repo [{}]: '; git clone '{}' '{}'; \
 else \
-  echo 'Existing repo {}: (ignored)'; \
+  echo 'Existing repo [{}]: (ignored)'; \
 fi",
             dir_esc,
             name_esc,
@@ -92,7 +92,7 @@ fi",
         )
     };
 
-    ssh::ssh_run(host, &command).with_context(|| format!("ensure_repo {} failed", repo.name))
+    ssh::ssh_run(host, &command).with_context(|| format!("clone & [optional]fetch {} failed", repo.name))
 }
 
 /// Sandbox env defaults for running check-push.sh on the remote (one-shot, no daemon loop).

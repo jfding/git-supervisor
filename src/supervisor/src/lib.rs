@@ -28,27 +28,29 @@ pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Resul
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
+        println!("Push host {{ {} }} -->", host_id);
+
         let dir_repos = config.dir_repos_for_host(host_id);
         let dir_copies = config.dir_copies_for_host(host_id);
         let dir_base = config.dir_base_for_host(host_id);
 
         if let Err(e) = ops::check_git_available(host)
-            .context(format!("host {}: check git", host_id))
+            .context(format!("check git available"))
         {
-            eprintln!("Error: {}: {}", host_id, e);
-            failures.push(format!("{}: {}", host_id, e));
+            eprintln!("Error {{ {} }}: {}", host_id, e);
+            failures.push(format!("{{ {} }}: {}", host_id, e));
             continue;
         }
 
         if let Err(e) = ops::check_docker_available(host) {
-            eprintln!("Warning: {}: {} (optional)", host_id, e);
+            eprintln!("Warning {{ {} }}: {} (optional)", host_id, e);
         }
 
         if let Err(e) = ops::create_dirs(host, &dir_repos, &dir_copies)
-            .context(format!("host {}: create_dirs", host_id))
+            .context(format!("create_dirs"))
         {
-            eprintln!("Error: {}: {}", host_id, e);
-            failures.push(format!("{}: {}", host_id, e));
+            eprintln!("Error {{ {} }}: {}", host_id, e);
+            failures.push(format!("{{ {} }}: {}", host_id, e));
             continue;
         }
 
@@ -56,15 +58,15 @@ pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Resul
             // When running check-push (--checkout) or --no-fetch, skip fetch on existing repos.
             let fetch_existing = !checkout && !no_fetch;
             if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, fetch_existing) {
-                eprintln!("Warning: {}: {} (continuing)", host_id, e);
-                failures.push(format!("{}: {}", host_id, e));
+                eprintln!("Warning {{ {} }}: {} (continuing)", host_id, e);
+                failures.push(format!("{{ {} }}: {}", host_id, e));
             }
         }
 
         if checkout {
             if let Err(e) = ops::run_check_push_remote(host, &dir_base, CHECK_PUSH_SCRIPT) {
-                eprintln!("Error: {}: {}", host_id, e);
-                failures.push(format!("{}: {}", host_id, e));
+                eprintln!("Error {{ {} }}: {}", host_id, e);
+                failures.push(format!("{{ {} }}: {}", host_id, e));
             }
         }
     }
@@ -72,7 +74,7 @@ pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Resul
     if failures.is_empty() {
         Ok(())
     } else {
-        anyhow::bail!("{} host/repo failure(s): {}", failures.len(), failures.join("; "))
+        anyhow::bail!("{} host/repo failure(s):\n{}", failures.len(), failures.join("\n"))
     }
 }
 
