@@ -1,0 +1,33 @@
+# Supervisor deployments config (sample).
+# Copy to deployments.yaml and edit. Run: supervisor validate [CONFIG]
+
+defaults:
+  dir_base: /srv/auto-reloader/work
+  branch_whitelist: [main, master]  # for documentation / future use
+
+# Define repos once; hosts reference them by name.
+repos:
+  auto-reloader:
+    git_url: git@github.com:org/auto-reloader.git
+  webapp:
+    git_url: git@github.com:org/webapp.git
+    branch_whitelist: [main, release]
+
+hosts:
+  # Local testing (e.g. ssh localhost)
+  local:
+    ssh_target: localhost
+    repos: []
+
+  # Remote host with default dir_base and one repo
+  app-server:
+    ssh_target: deploy@app-server.example.com
+    repos: [webapp]
+
+  # Host with custom SSH key, port, dir_base, and multiple repos
+  devops-server:
+    ssh_target: ops@devops-server.ai
+    ssh_port: 2222
+    ssh_identity_file: ~/.ssh/deploy_key
+    dir_base: /srv/auto-reloader/work
+    repos: [auto-reloader, webapp]
