@@ -1,6 +1,6 @@
 use clap::Parser;
 use std::path::PathBuf;
-use supervisor::{run_push, run_validate, CentralConfig};
+use supervisor::{run_push, run_validate, run_watch, CentralConfig};
 
 #[derive(Parser)]
 #[command(name = "supervisor")]
@@ -15,6 +15,8 @@ enum Command {
     Validate(ConfigArg),
     /// Push to remotes: create dirs and ensure repos
     Push(PushArgs),
+    /// Run check-push on each host in a loop (interval then timeout)
+    Watch(WatchArgs),
 }
 
 #[derive(clap::Args)]
@@ -33,6 +35,18 @@ struct PushArgs {
     checkout: bool,
 }
 
+#[derive(clap::Args)]
+struct WatchArgs {
+    #[command(flatten)]
+    config: ConfigArg,
+    /// Seconds between each round of check-push on all hosts
+    #[arg(long, default_value = "120")]
+    interval: u64,
+    /// Stop after this many seconds (default: run until interrupted)
+    #[arg(long)]
+    timeout: Option<u64>,
+}
+
 fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
     match CentralConfig::load(path) {
         Ok(c) => c,
@@ -49,12 +63,14 @@ fn main() {
     let (config_path, checkout) = match &cli.command {
         Command::Validate(args) => (&args.config, false),
         Command::Push(args) => (&args.config.config, args.checkout),
+        Command::Watch(args) => (&args.config.config, false),
     };
     let config = load_config_or_exit(config_path);
 
     let result = match &cli.command {
         Command::Validate(_) => run_validate(&config),
         Command::Push(_) => run_push(&config, checkout),
+        Command::Watch(args) => run_watch(&config, args.interval, args.timeout),
     };
     if let Err(e) = result {
         eprintln!("Error: {}", e);

@@ -1,4 +1,6 @@
 use anyhow::Context;
+use std::time::{Duration, Instant};
+use std::thread;
 
 pub mod config;
 pub mod ops;
@@ -37,6 +39,10 @@ pub fn run_push(config: &CentralConfig, checkout: bool) -> Result<(), anyhow::Er
             continue;
         }
 
+        if let Err(e) = ops::check_docker_available(host) {
+            eprintln!("Warning: {}: {} (optional)", host_id, e);
+        }
+
         if let Err(e) = ops::create_dirs(host, &dir_repos, &dir_copies)
             .context(format!("host {}: create_dirs", host_id))
         {
@@ -67,4 +73,48 @@ pub fn run_push(config: &CentralConfig, checkout: bool) -> Result<(), anyhow::Er
     } else {
         anyhow::bail!("{} host/repo failure(s): {}", failures.len(), failures.join("; "))
     }
+}
+
+/// Run check-push on each host in a loop. Sleeps `interval_secs` between rounds.
+/// If `timeout_secs` is Some, stops after that many seconds; if None, runs until interrupted.
+pub fn run_watch(
+    config: &CentralConfig,
+    interval_secs: u64,
+    timeout_secs: Option<u64>,
+) -> Result<(), anyhow::Error> {
+    let interval = Duration::from_secs(interval_secs);
+    let deadline = timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
+    let mut round: u64 = 0;
+
+    loop {
+        round += 1;
+        eprintln!("watch round {} (hosts: {})", round, config.hosts.len());
+
+        std::thread::scope(|s| {
+            for (host_id, host) in &config.hosts {
+                let host_id = host_id.clone();
+                let dir_base = config.dir_base_for_host(&host_id).clone();
+                s.spawn(move || {
+                    if let Err(e) = ops::run_check_push_remote(host, &dir_base, CHECK_PUSH_SCRIPT) {
+                        eprintln!("Error: {}: {}", host_id, e);
+                    }
+                });
+            }
+        });
+
+        let sleep_duration = match deadline {
+            Some(d) => {
+                let remaining = d.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    eprintln!("watch timeout reached, stopping");
+                    break;
+                }
+                remaining.min(interval)
+            }
+            None => interval,
+        };
+        thread::sleep(sleep_duration);
+    }
+
+    Ok(())
 }

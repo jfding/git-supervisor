@@ -47,11 +47,15 @@ supervisor validate [CONFIG]
 
 # Push to remotes: create dirs and ensure repos
 supervisor push [CONFIG]
+
+# Run check-push on each host in a loop (until interrupted or --timeout)
+supervisor watch [CONFIG] [--interval SECS] [--timeout SECS]
 ```
 
 - Config is an optional argument to each subcommand; default: `deployments.yaml`.
 - **validate**: load and validate the config, then print what push would do per host (no SSH).
 - **push**: create dirs and ensure repos on each remote over SSH.
+- **watch**: repeatedly run the check-push script on each remote; `--interval` (default 120) seconds between rounds, optional `--timeout` to stop after SECS seconds. Run until Ctrl+C if no timeout.
 - Remotes must have **SSH** access (key-based) and **git** installed. The supervisor only creates `dir_repos`/`dir_copies` and ensures each listed repo is cloned or fetched; it does not push any daemon config or start the daemon.
 
 ## Integration test (optional)
