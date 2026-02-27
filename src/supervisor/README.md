@@ -42,8 +42,8 @@ Binary: `target/release/supervisor`.
 ## Run
 
 ```bash
-# Validate config and print what would be done (no SSH)
-supervisor validate [CONFIG]
+# Check config, SSH/git connectivity, and repo existence on remotes
+supervisor check [CONFIG]
 
 # Push to remotes: create dirs and ensure repos
 supervisor push [CONFIG]
@@ -53,7 +53,7 @@ supervisor watch [CONFIG] [--interval SECS] [--timeout SECS]
 ```
 
 - Config is an optional argument to each subcommand; default: `deployments.yaml`.
-- **validate**: load and validate the config, then print what push would do per host (no SSH).
+- **check**: load and validate the config, then for each host verify SSH/git is available and that each configured repo directory exists under `dir_repos` with a `.git` directory.
 - **push**: create dirs and ensure repos on each remote over SSH.
 - **watch**: repeatedly run the check-push script on each remote; `--interval` (default 120) seconds between rounds, optional `--timeout` to stop after SECS seconds. Run until Ctrl+C if no timeout.
 - Remotes must have **SSH** access (key-based) and **git** installed. The supervisor only creates `dir_repos`/`dir_copies` and ensures each listed repo is cloned or fetched; it does not push any daemon config or start the daemon.

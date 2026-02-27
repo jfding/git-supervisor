@@ -11,13 +11,56 @@ pub use config::{CentralConfig, Defaults, Host, Repo};
 /// Embedded check-push.sh script (from repo src/check-push.sh), run on remote with sandbox env.
 const CHECK_PUSH_SCRIPT: &str = include_str!("../../../src/check-push.sh");
 
-/// Validate config: print what push would do without running SSH.
-pub fn run_validate(config: &CentralConfig) -> Result<(), anyhow::Error> {
-    for host_id in config.hosts.keys() {
-        let repos = config.repos_for_host(host_id);
-        eprintln!("{}: would create dirs and ensure {} repo(s)", host_id, repos.len());
+fn escape_single_quoted(s: &str) -> String {
+    s.replace('\'', "'\\''")
+}
+
+/// Check config and remotes: validate SSH/git connectivity and repo existence on each host.
+pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
+    let mut failures: Vec<String> = Vec::new();
+
+    for (host_id, host) in &config.hosts {
+        eprintln!("Check host {{ {} }} -->", host_id);
+
+        if let Err(e) = ops::check_git_available(host).context("check git/ssh available") {
+            eprintln!("Error {{ {} }}: {}", host_id, e);
+            failures.push(format!("{{ {} }}: {}", host_id, e));
+            continue;
+        }
+
+        let dir_repos = config.dir_repos_for_host(host_id);
+
+        for repo in config.repos_for_host(host_id) {
+            let repo_dir = dir_repos.join(&repo.name);
+            let repo_dir_str = repo_dir.to_string_lossy();
+            let repo_dir_esc = format!("'{}'", escape_single_quoted(&repo_dir_str));
+
+            let command = format!(
+                "if [ -d {}/.git ]; then \
+  echo 'OK repo [{}] at {}'; \
+else \
+  echo 'MISSING repo [{}] at {}'; \
+  exit 1; \
+fi",
+                repo_dir_esc,
+                repo.name,
+                repo_dir_str,
+                repo.name,
+                repo_dir_str,
+            );
+
+            if let Err(e) = crate::ssh::ssh_run(host, &command) {
+                eprintln!("Error {{ {} }}: {}", host_id, e);
+                failures.push(format!("{{ {} }}: {}", host_id, e));
+            }
+        }
     }
-    Ok(())
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("{} host/repo failure(s):\n{}", failures.len(), failures.join("\n"))
+    }
 }
 
 /// Push to remotes: create dirs and ensure repos.
