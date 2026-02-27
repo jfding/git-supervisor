@@ -35,7 +35,7 @@ pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Resul
         let dir_base = config.dir_base_for_host(host_id);
 
         if let Err(e) = ops::check_git_available(host)
-            .context(format!("check git available"))
+            .context("check git available")
         {
             eprintln!("Error {{ {} }}: {}", host_id, e);
             failures.push(format!("{{ {} }}: {}", host_id, e));
@@ -47,7 +47,7 @@ pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Resul
         }
 
         if let Err(e) = ops::create_dirs(host, &dir_repos, &dir_copies)
-            .context(format!("create_dirs"))
+            .context("create_dirs")
         {
             eprintln!("Error {{ {} }}: {}", host_id, e);
             failures.push(format!("{{ {} }}: {}", host_id, e));
@@ -64,7 +64,7 @@ pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Resul
         }
 
         if checkout {
-            if let Err(e) = ops::run_check_push_remote(host, &dir_base, CHECK_PUSH_SCRIPT) {
+            if let Err(e) = ops::run_check_push_remote(host, host_id, &dir_base, CHECK_PUSH_SCRIPT) {
                 eprintln!("Error {{ {} }}: {}", host_id, e);
                 failures.push(format!("{{ {} }}: {}", host_id, e));
             }
@@ -98,7 +98,7 @@ pub fn run_watch(
                 let host_id = host_id.clone();
                 let dir_base = config.dir_base_for_host(&host_id).clone();
                 s.spawn(move || {
-                    if let Err(e) = ops::run_check_push_remote(host, &dir_base, CHECK_PUSH_SCRIPT) {
+                    if let Err(e) = ops::run_check_push_remote(host, &host_id, &dir_base, CHECK_PUSH_SCRIPT) {
                         eprintln!("Error: {}: {}", host_id, e);
                     }
                 });

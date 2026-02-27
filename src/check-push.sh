@@ -37,13 +37,12 @@ sys.exit(0 if n1 < n2 else (1 if n1 > n2 else 2))
 
 function _logging {
     local _level=$1; shift
-    local _datetime=$(/bin/date '+%m-%d %H:%M:%S>')
+    local _prefix=$(/bin/date '+%m-%d %H:%M:%S>')
     if [ $_level -le $VERB ]; then
-        if [[ -n "${LOG_PREFIX:-}" ]]; then
-          echo $_datetime "${LOG_PREFIX}" "$@"
-        else
-          echo $_datetime "$@"
-        fi
+      [[ -n ${HOST_ID:-} ]] && _prefix="${_prefix} {${HOST_ID}}"
+      [[ -n "${LOG_PREFIX:-}" ]] && _prefix="${_prefix} ${LOG_PREFIX}"
+
+      echo $_prefix "$@"
     fi
 }
 function mustsay {
@@ -328,9 +327,9 @@ function main_loop {
 
     for _repo in $(/bin/ls -d *); do
       if [[ -d "${_repo}/.git" ]]; then
-        mustsay "[repo:${_repo}] checking git status ..."
+        mustsay "[${_repo}] checking git status ..."
         (
-          LOG_PREFIX="[repo:${_repo}]"
+          LOG_PREFIX="[${_repo}]"
           fetch_and_check "${_repo}"
         ) &
       fi
