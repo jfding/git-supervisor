@@ -15,6 +15,12 @@ pub fn check_git_available(host: &Host) -> Result<()> {
     ssh::ssh_run(host, "git --version").context("git not found or not runnable on remote (is git installed?)")
 }
 
+/// Check that `docker` is available on the remote host (run `docker --version`).
+/// Returns Err if docker is not found or not runnable; used for optional warning only.
+pub fn check_docker_available(host: &Host) -> Result<()> {
+    ssh::ssh_run(host, "docker --version").context("docker not found or not runnable")
+}
+
 /// Create dir_repos and dir_copies on the remote host.
 pub fn create_dirs(
     host: &Host,
