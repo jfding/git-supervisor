@@ -18,7 +18,36 @@ pub struct CentralConfig {
 #[serde(rename_all = "snake_case")]
 pub struct Defaults {
     pub dir_base: Option<String>,
-    pub branch_whitelist: Option<Vec<String>>,
+    #[serde(alias = "branch_whitelist")]
+    pub branches: Option<Vec<String>>,
+}
+
+/// One repo reference in a host's repo list. Can be a plain name or `{ name, branches? }`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum HostRepoRef {
+    Simple(String),
+    Full {
+        name: String,
+        #[serde(default)]
+        #[serde(alias = "branch_whitelist")]
+        branches: Option<Vec<String>>,
+    },
+}
+
+impl HostRepoRef {
+    pub fn name(&self) -> &str {
+        match self {
+            HostRepoRef::Simple(s) => s.as_str(),
+            HostRepoRef::Full { name, .. } => name.as_str(),
+        }
+    }
+    pub fn branches(&self) -> Option<&[String]> {
+        match self {
+            HostRepoRef::Simple(_) => None,
+            HostRepoRef::Full { branches, .. } => branches.as_deref(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -28,25 +57,24 @@ pub struct Host {
     pub ssh_port: Option<u16>,
     pub ssh_identity_file: Option<String>,
     pub dir_base: Option<String>,
-    /// List of repo names (must exist in top-level `repos`).
+    /// List of repo refs (name or { name, branches? }). Must exist in top-level `repos`.
     #[serde(default)]
-    pub repos: Vec<String>,
+    pub repos: Vec<HostRepoRef>,
 }
 
-/// Repo definition (git_url, optional branch_whitelist). Key in `repos` map is the repo name.
+/// Repo definition (git_url only). Key in `repos` map is the repo name. Branches are set per host/repo.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct RepoDef {
     pub git_url: String,
-    pub branch_whitelist: Option<Vec<String>>,
 }
 
-/// Resolved repo: name + definition, used when operating on a host.
+/// Resolved repo: name + definition, used when operating on a host. Branches come from host repo entry or defaults.
 #[derive(Debug, Clone)]
 pub struct Repo {
     pub name: String,
     pub git_url: String,
-    pub branch_whitelist: Option<Vec<String>>,
+    pub branches: Option<Vec<String>>,
 }
 
 impl CentralConfig {
@@ -60,7 +88,8 @@ impl CentralConfig {
             anyhow::bail!("Config must have at least one host under 'hosts'");
         }
         for (host_id, host) in &config.hosts {
-            for name in &host.repos {
+            for ref_ in &host.repos {
+                let name = ref_.name();
                 if !config.repos.contains_key(name) {
                     anyhow::bail!(
                         "Host '{}' references unknown repo '{}'; define it under top-level 'repos'",
@@ -73,19 +102,27 @@ impl CentralConfig {
         Ok(config)
     }
 
-    /// Resolve repo names for a host into full Repo values (from top-level `repos`).
+    /// Resolve repo refs for a host into full Repo values (from top-level `repos`). Branches from host repo entry or defaults.
     pub fn repos_for_host(&self, host_id: &str) -> Vec<Repo> {
         let host = match self.hosts.get(host_id) {
             Some(h) => h,
             None => return vec![],
         };
+        let default_branches = self.defaults.as_ref().and_then(|d| d.branches.as_ref());
         host.repos
             .iter()
-            .filter_map(|name| {
-                self.repos.get(name).map(|def| Repo {
-                    name: name.clone(),
-                    git_url: def.git_url.clone(),
-                    branch_whitelist: def.branch_whitelist.clone(),
+            .filter_map(|ref_| {
+                let name = ref_.name();
+                self.repos.get(name).map(|def| {
+                    let branches = ref_
+                        .branches()
+                        .map(|b| b.to_vec())
+                        .or_else(|| default_branches.cloned());
+                    Repo {
+                        name: name.to_string(),
+                        git_url: def.git_url.clone(),
+                        branches,
+                    }
                 })
             })
             .collect()
@@ -121,7 +158,7 @@ mod tests {
         let yaml = r#"
 defaults:
   dir_base: /work
-  branch_whitelist: [main, master, dev]
+  branches: [main, master, dev]
 
 repos:
   webapp:
@@ -136,11 +173,15 @@ hosts:
         assert_eq!(config.defaults.as_ref().unwrap().dir_base.as_deref(), Some("/work"));
         let host = config.hosts.get("app-server").unwrap();
         assert_eq!(host.ssh_target, "deploy@app-server.example.com");
-        assert_eq!(host.repos, &["webapp".to_string()]);
+        assert_eq!(host.repos.iter().map(|r| r.name()).collect::<Vec<_>>(), vec!["webapp"]);
         let repos = config.repos_for_host("app-server");
         assert_eq!(repos.len(), 1);
         assert_eq!(repos[0].name, "webapp");
         assert_eq!(repos[0].git_url, "git@github.com:org/webapp.git");
+        assert_eq!(
+            repos[0].branches,
+            Some(vec!["main".to_string(), "master".to_string(), "dev".to_string()])
+        );
     }
 
     #[test]
@@ -216,7 +257,9 @@ repos:
 hosts:
   app-server:
     ssh_target: deploy@host
-    repos: [webapp, nonexistent]
+    repos:
+      - webapp
+      - nonexistent
 "#;
         let _config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
         let path = std::env::temp_dir().join("supervisor-unknown-repo.yaml");
@@ -232,5 +275,41 @@ hosts:
         let yaml = "hosts:\n  bad: [unclosed";
         let result: Result<CentralConfig, _> = serde_yaml::from_str(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn branches_per_host_repo_entry() {
+        let yaml = r#"
+defaults:
+  dir_base: /work
+  branches: [main, master]
+
+repos:
+  webapp:
+    git_url: git@github.com:org/webapp.git
+  api:
+    git_url: git@github.com:org/api.git
+
+hosts:
+  app-server:
+    ssh_target: deploy@host
+    repos:
+      - name: webapp
+        branches: [main, release]
+      - name: api
+  other-host:
+    ssh_target: other@host
+    repos: [webapp]
+"#;
+        let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
+        let app_repos = config.repos_for_host("app-server");
+        assert_eq!(app_repos.len(), 2);
+        assert_eq!(app_repos[0].name, "webapp");
+        assert_eq!(app_repos[0].branches, Some(vec!["main".to_string(), "release".to_string()]));
+        assert_eq!(app_repos[1].name, "api");
+        assert_eq!(app_repos[1].branches, Some(vec!["main".to_string(), "master".to_string()]));
+        let other_repos = config.repos_for_host("other-host");
+        assert_eq!(other_repos.len(), 1);
+        assert_eq!(other_repos[0].branches, Some(vec!["main".to_string(), "master".to_string()]));
     }
 }
