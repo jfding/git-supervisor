@@ -9,8 +9,8 @@ set -o pipefail
 : "${CI_LOCK:=/tmp/.auto-reloader-lock.d}"
 : "${DIR_BASE:=/work}"
 
-## hard coded settings
-BR_WHITELIST="main master dev test alpha"
+## branch whitelist (override via env, e.g. BR_WHITELIST="main staging")
+: "${BR_WHITELIST:=main master dev test alpha}"
 BASHPID=$(echo $$ | tr -d '\n')
 
 function _version_less_than {
@@ -172,9 +172,16 @@ function checkout_and_copy_br {
   local _post_path="${_cp_path}.post"
   local _docker_path="${_cp_path}.docker"
 
-  # if no copy of this br, just mkdir with a skipping flag file
-  # (do not actual copying files, unless admin specify it explicitly)
-  [[ ! -d $_cp_path ]] && mkdir -p $_cp_path && touch $_cp_path/.skipping && say "..init dir of [ $_br ]"
+  # if no copy of this br, create dir; whitelisted branches get checkout in same run, others get .skipping (opt-in)
+  if [[ ! -d $_cp_path ]]; then
+    mkdir -p "$_cp_path"
+    if [[ $BR_WHITELIST =~ (^|[[:space:]])$_br($|[[:space:]]) ]]; then
+      say "..init dir of [ $_br ] (whitelisted, copying files)"
+    else
+      touch "$_cp_path/.skipping"
+      say "..init dir of [ $_br ]"
+    fi
+  fi
 
   # checking flags
   if [[ -f "${_cp_path}/.debugging" ]]; then
