@@ -3,14 +3,20 @@ set -u
 set -o pipefail
 
 ## global config settings
+# verbose logging or not
 : "${VERB:=1}"
+# timeout SEC for long running ops
 : "${TIMEOUT:=600}"
+# timer loop time in SEC
 : "${SLEEP_TIME:=120}"
-: "${CI_LOCK:=/tmp/.auto-reloader-lock.d}"
-: "${DIR_BASE:=/work}"
 
-## branch whitelist (override via env, e.g. BR_WHITELIST="main staging")
+# file lock, normally need NOT change
+: "${CI_LOCK:=/tmp/.auto-reloader-lock.d}"
+# working base dir
+: "${DIR_BASE:=/work}"
+# whitelist of repos to checkout
 : "${BR_WHITELIST:=main master dev test alpha}"
+
 BASHPID=$(echo $$ | tr -d '\n')
 
 function _version_less_than {

@@ -55,7 +55,7 @@ create_docker_script "api-service" "main"
 # Create special test files
 echo "Creating special test files..."
 
-# Create a .skipping file for a branch
+# Create a .skipping file for a branch (webapp.test is not in default BR_WHITELIST; opt-in scenario)
 mkdir -p "$COPIES_DIR/webapp.test"
 touch "$COPIES_DIR/webapp.test/.skipping"
 echo "Created .skipping file for webapp.test"

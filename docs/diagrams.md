@@ -78,11 +78,13 @@ sequenceDiagram
 
     loop For each branch
         Fetch->>Branch: checkout_and_copy_br(repo, branch)
-        alt First copy
+        alt First copy (whitelisted)
+            Branch->>Branch: mkdir copy dir (no .skipping)
+            Branch->>Branch: git archive → copy files
+        else First copy (non-whitelisted)
             Branch->>Branch: mkdir copy dir + .skipping
-        else Valid branch
-            Branch->>Branch: git checkout branch
-            Branch->>Branch: rsync files
+        else Valid branch (no .skipping)
+            Branch->>Branch: git archive / update files
             Branch->>Post: Run post script (if exists)
             Post-->>Branch: done
             Branch->>Docker: Restart docker (if configured)

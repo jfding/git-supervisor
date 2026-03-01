@@ -14,7 +14,8 @@ export VERB=2                    # Verbose output (0=silent, 1=normal, 2=verbose
 export TIMEOUT=30                # Shorter timeout for testing
 export SLEEP_TIME=""             # Run once and exit (empty = no daemon mode)
 
-# Branch whitelist for testing
+# Branch whitelist for testing (override via env; script default: main master dev test alpha)
+# Whitelisted branches get copy dir created and populated on first run; others start with .skipping
 export BR_WHITELIST="main master dev test alpha"
 
 # Test mode flag

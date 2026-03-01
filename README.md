@@ -29,6 +29,10 @@ If want to run a timer loop instead of web-hook, need to:
 - Specify the **command** as `/srcripts/check-push.sh` for docker-run
 - If no SLEEP_TIME env, the script will be run as one-shot checking.
 
+### Configuration (check-push.sh)
+
+- **BR_WHITELIST**: Space-separated branch names to track and copy by default (e.g. `main master dev`). Override via env; default in script: `main master dev test alpha`. Whitelisted branches get their copy dir created and populated on first run; other branches are only tracked if a copy dir already exists (and then start with a `.skipping` flag until you remove it).
+
 ### Init working git repos
 
 In HOST, under the path *<work-volume>/git_repos/*, just use the regular `git clone` the target repos.
