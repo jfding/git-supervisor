@@ -34,6 +34,9 @@ struct WatchArgs {
     /// Stop after this many seconds (default: run until interrupted)
     #[arg(long)]
     timeout: Option<u64>,
+    /// Ignore missing repos: do not clone; only create dirs and run check-push on existing repos
+    #[arg(short = 'I', long)]
+    ignore_missing: bool,
 }
 
 fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
@@ -57,7 +60,7 @@ fn main() {
 
     let result = match &cli.command {
         Command::Check(_) => run_check(&config),
-        Command::Watch(args) => run_watch(&config, args.interval, args.timeout),
+        Command::Watch(args) => run_watch(&config, args.interval, args.timeout, args.ignore_missing),
     };
     if let Err(e) = result {
         eprintln!("Error: {}", e);

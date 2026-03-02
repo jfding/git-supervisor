@@ -31,9 +31,7 @@ pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
     }
     cmd.arg(&host.ssh_target).arg(command);
 
-    let status = cmd
-        .status()
-        .context("Failed to execute ssh")?;
+    let status = cmd.status().context("Failed to execute ssh")?;
     if status.success() {
         Ok(())
     } else {

@@ -33,13 +33,13 @@ pub fn create_dirs(
     ssh::ssh_run(host, &command).context("create_dirs failed")
 }
 
-/// Ensure the repo exists on the remote: clone if missing; if `fetch_existing` is true, also fetch when repo exists.
+/// Ensure the repo exists on the remote: clone if missing unless `ignore_missing` is true
 /// dir_repos is the path to the git_repos directory on the remote.
 pub fn ensure_repo(
     host: &Host,
     dir_repos: &Path,
     repo: &Repo,
-    fetch_existing: bool,
+    ignore_missing: bool,
 ) -> Result<()> {
     // Sanitize: name and git_url must not be used in shell eval. We pass them as
     // arguments to a single-quoted script fragment. The only way to get out of
@@ -58,24 +58,8 @@ pub fn ensure_repo(
     let url_esc = url.replace('\'', "'\\''");
     let dir_esc = dir.replace('\'', "'\\''");
 
-    // Build remote command: cd to dir_repos, then clone if missing; optionally fetch if existing.
-    let command = if fetch_existing {
-        format!(
-            "cd '{}' && \
-if [ ! -d '{}/.git' ]; then \
-  echo -n '    New repo [{}]: '; git clone '{}' '{}'; \
-else \
-  echo -n '    Existing repo [{}]: '; (cd '{}' && git fetch --all --tags --prune); \
-fi",
-            dir_esc,
-            name_esc,
-            name_esc,
-            url_esc,
-            name_esc,
-            name_esc,
-            name_esc,
-        )
-    } else {
+    // Build remote command: cd to dir_repos, then clone if missing
+    let command = if !ignore_missing {
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
@@ -87,6 +71,19 @@ fi",
             name_esc,
             name_esc,
             url_esc,
+            name_esc,
+            name_esc,
+        )
+    } else {
+        format!(
+            "cd '{}' && \
+if [ ! -d '{}/.git' ]; then \
+  echo '    Missing repo [{}]: (ignored)'; \
+else \
+  echo '    Existing repo [{}]: (ready)'; \
+fi",
+            dir_esc,
+            name_esc,
             name_esc,
             name_esc,
         )

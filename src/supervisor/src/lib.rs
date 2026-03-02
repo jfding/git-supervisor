@@ -76,8 +76,9 @@ fi",
     }
 }
 
-/// Prepare remotes: create dirs and ensure repos exist (clone only when missing; no fetch).
-fn run_prepare(config: &CentralConfig) -> Result<(), anyhow::Error> {
+/// Prepare remotes: create dirs and optionally ensure repos exist (clone only when missing; no fetch).
+/// If `ignore_missing` is true, check each repo and report "ready" or "missing" but do not clone missing ones.
+fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
@@ -107,12 +108,13 @@ fn run_prepare(config: &CentralConfig) -> Result<(), anyhow::Error> {
         }
 
         for repo in config.repos_for_host(host_id) {
-            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, false) {
+            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, ignore_missing) {
                 eprintln!("Warning {{ {} }}: {} (continuing)", host_id, e);
                 failures.push(format!("{{ {} }}: {}", host_id, e));
             }
         }
     }
+    println!("Prepare DONE\n");
 
     if failures.is_empty() {
         Ok(())
@@ -121,17 +123,21 @@ fn run_prepare(config: &CentralConfig) -> Result<(), anyhow::Error> {
     }
 }
 
-/// Prepare remotes (create dirs, init empty repos), then run check-push on each host in a loop.
+/// Prepare remotes (create dirs, init empty repos unless --ignore-missing), then run check-push on each host in a loop.
 /// Sleeps `interval_secs` between rounds. If `timeout_secs` is Some, stops after that many seconds.
 pub fn run_watch(
     config: &CentralConfig,
     interval_secs: u64,
     timeout_secs: Option<u64>,
+    ignore_missing: bool,
 ) -> Result<(), anyhow::Error> {
-    run_prepare(config)?;
     let interval = Duration::from_secs(interval_secs);
     let deadline = timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
     let mut round: u64 = 0;
+
+    // prepare remote hosts and repos: check the necessary command and dirs
+    // and check the readiness of all remote repos
+    run_prepare(config, ignore_missing)?;
 
     loop {
         round += 1;
