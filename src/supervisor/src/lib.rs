@@ -1,4 +1,5 @@
 use anyhow::Context;
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use std::thread;
 
@@ -13,6 +14,19 @@ const CHECK_PUSH_SCRIPT: &str = include_str!("../../../src/check-push.sh");
 
 fn escape_single_quoted(s: &str) -> String {
     s.replace('\'', "'\\''")
+}
+
+/// Build BR_WHITELIST (union of all repo branches) and REPO_WHITELIST (repo names) from host repos.
+fn whitelists_from_repos(repos: &[Repo]) -> (Vec<String>, Vec<String>) {
+    let br_whitelist: Vec<String> = repos
+        .iter()
+        .filter_map(|r| r.branches.as_ref())
+        .flat_map(|b| b.iter().cloned())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let repo_whitelist: Vec<String> = repos.iter().map(|r| r.name.clone()).collect();
+    (br_whitelist, repo_whitelist)
 }
 
 /// Check config and remotes: validate SSH/git connectivity and repo existence on each host.
@@ -106,7 +120,16 @@ pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Resul
         }
 
         if checkout {
-            if let Err(e) = ops::run_check_push_remote(host, host_id, &dir_base, CHECK_PUSH_SCRIPT) {
+            let repos = config.repos_for_host(host_id);
+            let (br_whitelist, repo_whitelist) = whitelists_from_repos(&repos);
+            if let Err(e) = ops::run_check_push_remote(
+                host,
+                host_id,
+                &dir_base,
+                CHECK_PUSH_SCRIPT,
+                Some(br_whitelist.as_slice()),
+                Some(repo_whitelist.as_slice()),
+            ) {
                 eprintln!("Error {{ {} }}: {}", host_id, e);
                 failures.push(format!("{{ {} }}: {}", host_id, e));
             }
@@ -139,8 +162,17 @@ pub fn run_watch(
             for (host_id, host) in &config.hosts {
                 let host_id = host_id.clone();
                 let dir_base = config.dir_base_for_host(&host_id).clone();
+                let repos = config.repos_for_host(&host_id);
+                let (br_whitelist, repo_whitelist) = whitelists_from_repos(&repos);
                 s.spawn(move || {
-                    if let Err(e) = ops::run_check_push_remote(host, &host_id, &dir_base, CHECK_PUSH_SCRIPT) {
+                    if let Err(e) = ops::run_check_push_remote(
+                        host,
+                        &host_id,
+                        &dir_base,
+                        CHECK_PUSH_SCRIPT,
+                        Some(br_whitelist.as_slice()),
+                        Some(repo_whitelist.as_slice()),
+                    ) {
                         eprintln!("Error: {}: {}", host_id, e);
                     }
                 });

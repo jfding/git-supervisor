@@ -102,16 +102,40 @@ const CHECK_PUSH_CI_LOCK: &str = "/tmp/.auto-reloader-lock.d";
 
 /// Run the embedded check-push.sh script on the remote host with sandbox env.
 /// dir_base is the host's work dir (e.g. /work); script runs with DIR_BASE set and --once.
-pub fn run_check_push_remote(host: &Host, host_id: &str, dir_base: &Path, script: &str) -> Result<()> {
+/// When given, br_whitelist and repo_whitelist are passed as BR_WHITELIST and REPO_WHITELIST (space-separated).
+pub fn run_check_push_remote(
+    host: &Host,
+    host_id: &str,
+    dir_base: &Path,
+    script: &str,
+    br_whitelist: Option<&[String]>,
+    repo_whitelist: Option<&[String]>,
+) -> Result<()> {
     let dir_base_esc = escape_single_quoted(&dir_base.to_string_lossy());
+    let host_id_esc = escape_single_quoted(host_id);
+
+    let mut env_parts: Vec<String> = Vec::new();
+    if let Some(v) = br_whitelist {
+        env_parts.push(format!("BR_WHITELIST={}", escape_single_quoted(&v.join(" "))));
+    }
+    if let Some(v) = repo_whitelist {
+        env_parts.push(format!("REPO_WHITELIST={}", escape_single_quoted(&v.join(" "))));
+    }
+    let extra = if env_parts.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", env_parts.join(" "))
+    };
+
     // Export env vars then run script via stdin; script expects --once for one-shot.
     let command = format!(
-        "env DIR_BASE={} VERB={} TIMEOUT={} SLEEP_TIME=0 CI_LOCK='{}' HOST_ID={} bash -s -- --once",
+        "env DIR_BASE={} VERB={} TIMEOUT={} SLEEP_TIME=0 CI_LOCK='{}' HOST_ID='{}'{} bash -s -- --once",
         dir_base_esc,
         CHECK_PUSH_VERB,
         CHECK_PUSH_TIMEOUT,
         CHECK_PUSH_CI_LOCK,
-        host_id
+        host_id_esc,
+        extra
     );
     ssh::ssh_run_with_stdin(host, &command, script.as_bytes())
         .context("run check-push on remote failed")
