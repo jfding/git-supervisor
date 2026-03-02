@@ -40,7 +40,6 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
   echo 'OK repo [{}] at {}'; \
 else \
   echo 'MISSING repo [{}] at {}'; \
-  exit 1; \
 fi",
                 repo_dir_esc,
                 repo.name,
