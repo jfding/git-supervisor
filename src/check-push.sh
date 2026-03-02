@@ -16,6 +16,8 @@ set -o pipefail
 : "${DIR_BASE:=/work}"
 # whitelist of repos to checkout
 : "${BR_WHITELIST:=main master dev test alpha}"
+# whitelist of repos to check (empty = scan all repos in work dir)
+: "${REPO_WHITELIST:=}"
 
 BASHPID=$(echo $$ | tr -d '\n')
 
@@ -338,14 +340,20 @@ function main_loop {
     # Acquire lock
     acquire_lock "${CI_LOCK}" || exit 1
 
-    for _repo in $(/bin/ls -d *); do
-      if [[ -d "${_repo}/.git" ]]; then
-        mustsay "[${_repo}] checking git status ..."
-        (
-          LOG_PREFIX="[${_repo}]"
-          fetch_and_check "${_repo}"
-        ) &
+    # build list of repo dirs to check (whitelist or all git dirs)
+    REPOS_TO_CHECK=$(
+      if [[ -n "${REPO_WHITELIST}" ]]; then
+        for _repo in $REPO_WHITELIST; do
+          if [[ -d "${_repo}/.git" ]]; then echo "$_repo"; else [[ -d "${_repo}" ]] && mustsay "WARN: [${_repo}] not a git repo, skip" >&2 || mustsay "WARN: [${_repo}] not found in $DIR_REPOS, skip" >&2; fi
+        done
+      else
+        for _repo in $(/bin/ls -d */ 2>/dev/null); do _repo=${_repo%/}; [[ -d "${_repo}/.git" ]] && echo "$_repo"; done
       fi
+    )
+
+    for _repo in $REPOS_TO_CHECK; do
+      mustsay "[${_repo}] checking git status ..."
+      ( LOG_PREFIX="[${_repo}]"; fetch_and_check "${_repo}" ) &
     done
 
     for _worker_pid in $(jobs -pr); do
