@@ -76,19 +76,15 @@ fi",
     }
 }
 
-/// Push to remotes: create dirs and ensure repos.
-/// If `checkout` is true, after preparing repos run the embedded check-push.sh on each host with sandbox env.
-/// If `no_fetch` is true, skip git fetch for existing repos (only clone when missing).
-/// Returns Err if any host failed (create_dirs or any ensure_repo, or check-push when checkout is true).
-pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Result<(), anyhow::Error> {
+/// Prepare remotes: create dirs and ensure repos exist (clone only when missing; no fetch).
+fn run_prepare(config: &CentralConfig) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
-        println!("Push host {{ {} }} -->", host_id);
+        eprintln!("Prepare host {{ {} }} -->", host_id);
 
         let dir_repos = config.dir_repos_for_host(host_id);
         let dir_copies = config.dir_copies_for_host(host_id);
-        let dir_base = config.dir_base_for_host(host_id);
 
         if let Err(e) = ops::check_git_available(host)
             .context("check git available")
@@ -111,26 +107,8 @@ pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Resul
         }
 
         for repo in config.repos_for_host(host_id) {
-            // When running check-push (--checkout) or --no-fetch, skip fetch on existing repos.
-            let fetch_existing = !checkout && !no_fetch;
-            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, fetch_existing) {
+            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, false) {
                 eprintln!("Warning {{ {} }}: {} (continuing)", host_id, e);
-                failures.push(format!("{{ {} }}: {}", host_id, e));
-            }
-        }
-
-        if checkout {
-            let repos = config.repos_for_host(host_id);
-            let (br_whitelist, repo_whitelist) = whitelists_from_repos(&repos);
-            if let Err(e) = ops::run_check_push_remote(
-                host,
-                host_id,
-                &dir_base,
-                CHECK_PUSH_SCRIPT,
-                Some(br_whitelist.as_slice()),
-                Some(repo_whitelist.as_slice()),
-            ) {
-                eprintln!("Error {{ {} }}: {}", host_id, e);
                 failures.push(format!("{{ {} }}: {}", host_id, e));
             }
         }
@@ -143,13 +121,14 @@ pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Resul
     }
 }
 
-/// Run check-push on each host in a loop. Sleeps `interval_secs` between rounds.
-/// If `timeout_secs` is Some, stops after that many seconds; if None, runs until interrupted.
+/// Prepare remotes (create dirs, init empty repos), then run check-push on each host in a loop.
+/// Sleeps `interval_secs` between rounds. If `timeout_secs` is Some, stops after that many seconds.
 pub fn run_watch(
     config: &CentralConfig,
     interval_secs: u64,
     timeout_secs: Option<u64>,
 ) -> Result<(), anyhow::Error> {
+    run_prepare(config)?;
     let interval = Duration::from_secs(interval_secs);
     let deadline = timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
     let mut round: u64 = 0;

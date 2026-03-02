@@ -63,9 +63,9 @@ pub fn ensure_repo(
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
-  echo -n 'New repo [{}]: '; git clone '{}' '{}'; \
+  echo -n '    New repo [{}]: '; git clone '{}' '{}'; \
 else \
-  echo -n 'Existing repo [{}]: '; (cd '{}' && git fetch --all --tags --prune); \
+  echo -n '    Existing repo [{}]: '; (cd '{}' && git fetch --all --tags --prune); \
 fi",
             dir_esc,
             name_esc,
@@ -79,9 +79,9 @@ fi",
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
-  echo -n 'New repo [{}]: '; git clone '{}' '{}'; \
+  echo -n '    New repo [{}]: '; git clone '{}' '{}'; \
 else \
-  echo 'Existing repo [{}]: (ignored)'; \
+  echo '    Existing repo [{}]: (ready)'; \
 fi",
             dir_esc,
             name_esc,
