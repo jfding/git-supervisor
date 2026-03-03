@@ -54,7 +54,7 @@ All environment variables from the original bash script are supported:
 - `DIR_COPIES`: Directory for code copies, default: `/work/copies`
 - `DIR_SCRIPTS`: Directory for scripts, default: `/work/scripts`
 - `CI_LOCK`: Lock file path, default: `/tmp/.ci-lock`
-- `BR_WHITELIST`: Space-separated list of whitelisted branches, default: "main master dev test alpha"
+- `BR_WHITELIST`: Space-separated list of whitelisted branches; override via env. Default: "main master dev test alpha". Whitelisted branches get their copy dir created and files checked out on first run; non-whitelisted branches only get a copy if the dir already exists (and start with `.skipping` until explicitly enabled).
 
 ### Configuration File
 

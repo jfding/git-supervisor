@@ -33,13 +33,13 @@ pub fn create_dirs(
     ssh::ssh_run(host, &command).context("create_dirs failed")
 }
 
-/// Ensure the repo exists on the remote: clone if missing; if `fetch_existing` is true, also fetch when repo exists.
+/// Ensure the repo exists on the remote: clone if missing unless `ignore_missing` is true
 /// dir_repos is the path to the git_repos directory on the remote.
 pub fn ensure_repo(
     host: &Host,
     dir_repos: &Path,
     repo: &Repo,
-    fetch_existing: bool,
+    ignore_missing: bool,
 ) -> Result<()> {
     // Sanitize: name and git_url must not be used in shell eval. We pass them as
     // arguments to a single-quoted script fragment. The only way to get out of
@@ -58,20 +58,19 @@ pub fn ensure_repo(
     let url_esc = url.replace('\'', "'\\''");
     let dir_esc = dir.replace('\'', "'\\''");
 
-    // Build remote command: cd to dir_repos, then clone if missing; optionally fetch if existing.
-    let command = if fetch_existing {
+    // Build remote command: cd to dir_repos, then clone if missing
+    let command = if !ignore_missing {
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
-  echo -n 'New repo [{}]: '; git clone '{}' '{}'; \
+  echo -n '    New repo [{}]: '; git clone '{}' '{}'; \
 else \
-  echo -n 'Existing repo [{}]: '; (cd '{}' && git fetch --all --tags --prune); \
+  echo '    Existing repo [{}]: (ready)'; \
 fi",
             dir_esc,
             name_esc,
             name_esc,
             url_esc,
-            name_esc,
             name_esc,
             name_esc,
         )
@@ -79,14 +78,12 @@ fi",
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
-  echo -n 'New repo [{}]: '; git clone '{}' '{}'; \
+  echo '    Missing repo [{}]: (ignored)'; \
 else \
-  echo 'Existing repo [{}]: (ignored)'; \
+  echo '    Existing repo [{}]: (ready)'; \
 fi",
             dir_esc,
             name_esc,
-            name_esc,
-            url_esc,
             name_esc,
             name_esc,
         )
@@ -102,16 +99,41 @@ const CHECK_PUSH_CI_LOCK: &str = "/tmp/.auto-reloader-lock.d";
 
 /// Run the embedded check-push.sh script on the remote host with sandbox env.
 /// dir_base is the host's work dir (e.g. /work); script runs with DIR_BASE set and --once.
-pub fn run_check_push_remote(host: &Host, host_id: &str, dir_base: &Path, script: &str) -> Result<()> {
+/// When given, repo_whitelist is passed as REPO_WHITELIST (space-separated).
+/// When given, repo_branches is passed as BR_WHITELIST_PER_REPO (format: "repo1 br1 br2|repo2 br3").
+pub fn run_check_push_remote(
+    host: &Host,
+    host_id: &str,
+    dir_base: &Path,
+    script: &str,
+    repo_whitelist: Option<&str>,
+    repo_branches: Option<&str>,
+) -> Result<()> {
     let dir_base_esc = escape_single_quoted(&dir_base.to_string_lossy());
+    let host_id_esc = escape_single_quoted(host_id);
+
+    let mut env_parts: Vec<String> = Vec::new();
+    if let Some(s) = repo_whitelist {
+        env_parts.push(format!("REPO_WHITELIST={}", escape_single_quoted(s)));
+    }
+    if let Some(s) = repo_branches {
+        env_parts.push(format!("BR_WHITELIST_PER_REPO={}", escape_single_quoted(s)));
+    }
+    let extra = if env_parts.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", env_parts.join(" "))
+    };
+
     // Export env vars then run script via stdin; script expects --once for one-shot.
     let command = format!(
-        "env DIR_BASE={} VERB={} TIMEOUT={} SLEEP_TIME=0 CI_LOCK='{}' HOST_ID={} bash -s -- --once",
+        "env DIR_BASE={} VERB={} TIMEOUT={} SLEEP_TIME=0 CI_LOCK='{}' HOST_ID='{}'{} bash -s -- --once",
         dir_base_esc,
         CHECK_PUSH_VERB,
         CHECK_PUSH_TIMEOUT,
         CHECK_PUSH_CI_LOCK,
-        host_id
+        host_id_esc,
+        extra
     );
     ssh::ssh_run_with_stdin(host, &command, script.as_bytes())
         .context("run check-push on remote failed")

@@ -15,6 +15,35 @@ fn escape_single_quoted(s: &str) -> String {
     s.replace('\'', "'\\''")
 }
 
+/// Build whitelists from host repos. Returns None for each value when empty.
+/// - repo_whitelist: repo names (REPO_WHITELIST), space-separated
+/// - br_whitelist_per_host: BR_WHITELIST_PER_REPO string for the script, "repo1 br1 br2|repo2 br3".
+///   Uses default_branches when a repo has no branches specified.
+fn whitelists_from_config(config: &CentralConfig, host_id: &str) -> (Option<String>, Option<String>) {
+    let repos = config.repos_for_host(host_id);
+    let default_branches = config.defaults.as_ref().and_then(|d| d.branches.as_deref());
+
+    let repo_whitelist: String = repos.iter().map(|r| r.name.clone()).collect::<Vec<_>>().join(" ");
+    let br_whitelist_per_host = repos
+        .iter()
+        .filter_map(|r| {
+            let branches = r.branches.as_deref().or(default_branches)?;
+            let mut s = r.name.clone();
+            for br in branches {
+                s.push(' ');
+                s.push_str(br);
+            }
+            Some(s)
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+
+    (
+        (!repo_whitelist.is_empty()).then_some(repo_whitelist),
+        (!br_whitelist_per_host.is_empty()).then_some(br_whitelist_per_host),
+    )
+}
+
 /// Check config and remotes: validate SSH/git connectivity and repo existence on each host.
 pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
@@ -40,7 +69,6 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
   echo 'OK repo [{}] at {}'; \
 else \
   echo 'MISSING repo [{}] at {}'; \
-  exit 1; \
 fi",
                 repo_dir_esc,
                 repo.name,
@@ -63,19 +91,16 @@ fi",
     }
 }
 
-/// Push to remotes: create dirs and ensure repos.
-/// If `checkout` is true, after preparing repos run the embedded check-push.sh on each host with sandbox env.
-/// If `no_fetch` is true, skip git fetch for existing repos (only clone when missing).
-/// Returns Err if any host failed (create_dirs or any ensure_repo, or check-push when checkout is true).
-pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Result<(), anyhow::Error> {
+/// Prepare remotes: create dirs and optionally ensure repos exist (clone only when missing; no fetch).
+/// If `ignore_missing` is true, check each repo and report "ready" or "missing" but do not clone missing ones.
+fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
-        println!("Push host {{ {} }} -->", host_id);
+        eprintln!("Prepare host {{ {} }} -->", host_id);
 
         let dir_repos = config.dir_repos_for_host(host_id);
         let dir_copies = config.dir_copies_for_host(host_id);
-        let dir_base = config.dir_base_for_host(host_id);
 
         if let Err(e) = ops::check_git_available(host)
             .context("check git available")
@@ -98,21 +123,13 @@ pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Resul
         }
 
         for repo in config.repos_for_host(host_id) {
-            // When running check-push (--checkout) or --no-fetch, skip fetch on existing repos.
-            let fetch_existing = !checkout && !no_fetch;
-            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, fetch_existing) {
+            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, ignore_missing) {
                 eprintln!("Warning {{ {} }}: {} (continuing)", host_id, e);
                 failures.push(format!("{{ {} }}: {}", host_id, e));
             }
         }
-
-        if checkout {
-            if let Err(e) = ops::run_check_push_remote(host, host_id, &dir_base, CHECK_PUSH_SCRIPT) {
-                eprintln!("Error {{ {} }}: {}", host_id, e);
-                failures.push(format!("{{ {} }}: {}", host_id, e));
-            }
-        }
     }
+    println!("Prepare DONE\n");
 
     if failures.is_empty() {
         Ok(())
@@ -121,16 +138,24 @@ pub fn run_push(config: &CentralConfig, checkout: bool, no_fetch: bool) -> Resul
     }
 }
 
-/// Run check-push on each host in a loop. Sleeps `interval_secs` between rounds.
-/// If `timeout_secs` is Some, stops after that many seconds; if None, runs until interrupted.
+/// Prepare remotes (create dirs, init empty repos unless --ignore-missing), then run check-push on each host in a loop.
+/// Sleeps `interval_secs` between rounds. If `timeout_secs` is Some, stops after that many seconds.
 pub fn run_watch(
     config: &CentralConfig,
     interval_secs: u64,
     timeout_secs: Option<u64>,
+    ignore_missing: bool,
+    skip_prepare: bool,
 ) -> Result<(), anyhow::Error> {
     let interval = Duration::from_secs(interval_secs);
     let deadline = timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
     let mut round: u64 = 0;
+
+    // prepare remote hosts and repos: check the necessary command and dirs
+    // and check the readiness of all remote repos
+    if !skip_prepare {
+        run_prepare(config, ignore_missing)?;
+    }
 
     loop {
         round += 1;
@@ -140,8 +165,17 @@ pub fn run_watch(
             for (host_id, host) in &config.hosts {
                 let host_id = host_id.clone();
                 let dir_base = config.dir_base_for_host(&host_id).clone();
+                let (repo_whitelist, br_whitelist_per_host) = whitelists_from_config(config, &host_id);
+
                 s.spawn(move || {
-                    if let Err(e) = ops::run_check_push_remote(host, &host_id, &dir_base, CHECK_PUSH_SCRIPT) {
+                    if let Err(e) = ops::run_check_push_remote(
+                        host,
+                        &host_id,
+                        &dir_base,
+                        CHECK_PUSH_SCRIPT,
+                        repo_whitelist.as_deref(),
+                        br_whitelist_per_host.as_deref(),
+                    ) {
                         eprintln!("Error: {}: {}", host_id, e);
                     }
                 });
