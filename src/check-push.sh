@@ -305,7 +305,7 @@ function fetch_and_check {
   # clean up trash file from last time crash
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
 
-  say "..fetching repo ..."
+  say "..fetching repo, for branches [$_br_whitelist]..."
   _timeout git fetch -q --all --tags --prune || {
     err "failed to fetch repo $_repo, skip"
     return 1

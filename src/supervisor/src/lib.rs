@@ -163,7 +163,7 @@ pub fn run_watch(
                 let host_id = host_id.clone();
                 let dir_base = config.dir_base_for_host(&host_id).clone();
                 let (repo_whitelist, br_whitelist_per_host) = whitelists_from_config(config, &host_id);
-                println!("repo_whitelist: {:?}, br_whitelist_per_host: {:?}", repo_whitelist, br_whitelist_per_host);
+
                 s.spawn(move || {
                     if let Err(e) = ops::run_check_push_remote(
                         host,
