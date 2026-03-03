@@ -145,6 +145,7 @@ pub fn run_watch(
     interval_secs: u64,
     timeout_secs: Option<u64>,
     ignore_missing: bool,
+    skip_prepare: bool,
 ) -> Result<(), anyhow::Error> {
     let interval = Duration::from_secs(interval_secs);
     let deadline = timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
@@ -152,7 +153,9 @@ pub fn run_watch(
 
     // prepare remote hosts and repos: check the necessary command and dirs
     // and check the readiness of all remote repos
-    run_prepare(config, ignore_missing)?;
+    if !skip_prepare {
+        run_prepare(config, ignore_missing)?;
+    }
 
     loop {
         round += 1;
