@@ -17,7 +17,7 @@ set -o pipefail
 # whitelist of repos to checkout
 : "${BR_WHITELIST:=main master dev test alpha}"
 # whitelist of repos to check (empty = scan all repos in work dir)
-: "${REPO_WHITELIST:=}"
+: "${BR_WHITELIST_PER_REPO:=}"
 
 BASHPID=$(echo $$ | tr -d '\n')
 
@@ -64,6 +64,25 @@ function verbose {
 }
 function err {
   mustsay "ERROR: $@"
+}
+
+# Return space-separated branch list for the given repo.
+# Uses BR_WHITELIST_PER_REPO if set (format: "repo1 br1 br2|repo2 br3"),
+# else BR_WHITELIST.
+function get_branches_for_repo {
+  local _repo_name=$1
+  if [[ -z "${BR_WHITELIST_PER_REPO:-}" ]]; then
+    echo "$BR_WHITELIST"
+    return
+  fi
+  local _segment
+  while IFS= read -r _segment; do
+    if [[ $_segment == $_repo_name\ * ]] || [[ $_segment == "$_repo_name" ]]; then
+      echo "${_segment#$_repo_name }"
+      return
+    fi
+  done <<< "${BR_WHITELIST_PER_REPO//|/$'\n'}"
+  echo "$BR_WHITELIST"
 }
 
 # file lock
@@ -121,13 +140,17 @@ function _handle_docker {
     # restart docker instance
     local _docker_path=$1
 
-    command -v docker >/dev/null || { say "WARN: docker cli not found, skip docker restart"; return; }
+    command -v docker >/dev/null || {
+      say "WARN: docker cli not found, skip docker restart"
+      return
+    }
 
     if [[ -f "${_docker_path}" ]]; then
       local _docker_name=$(cat "${_docker_path}")
 
       say "..restarting docker [ $_docker_name ]"
-      _timeout docker restart "${_docker_name}" > /dev/null || err "failed to restart docker [ $_docker_name ]"
+      _timeout docker restart "${_docker_name}" > /dev/null || \
+          err "failed to restart docker [ $_docker_name ]"
       unset _docker_name
     fi
 }
@@ -150,7 +173,9 @@ function checkout_and_copy_tag {
   [[ -d $_arch_path ]] && return
   
   # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
-  mkdir -p $_cp_path && git archive $_tag | tar -x -C $_cp_path && say "..copy files for new RELEASE [ $_tag ]"
+  mkdir -p $_cp_path && \
+    git archive $_tag | tar -x -C $_cp_path && \
+    say "..copy files for new RELEASE [ $_tag ]"
 
   if [[ -L $_latest_path ]]; then
     local _cur_latest_path=$(readlink $_latest_path)
@@ -171,19 +196,21 @@ function checkout_and_copy_tag {
   _handle_docker ${_docker_path}
 }
 
-# expect one argument "branch_name"
+# expect repo, branch, and optional per-repo branch list (default BR_WHITELIST)
 function checkout_and_copy_br {
   local _repo=$1
   local _br=$2
+  local _br_list="${3:-$BR_WHITELIST}"
 
   local _cp_path="${DIR_COPIES}/${_repo}.${_br}"
   local _post_path="${_cp_path}.post"
   local _docker_path="${_cp_path}.docker"
 
-  # if no copy of this br, create dir; whitelisted branches get checkout in same run, others get .skipping (opt-in)
+  # if no copy of this br, create dir; whitelisted branches get checkout in same run,
+  # others get .skipping (opt-in)
   if [[ ! -d $_cp_path ]]; then
     mkdir -p "$_cp_path"
-    if [[ $BR_WHITELIST =~ (^|[[:space:]])$_br($|[[:space:]]) ]]; then
+    if [[ $_br_list =~ (^|[[:space:]])$_br($|[[:space:]]) ]]; then
       say "..init dir of [ $_br ] (whitelisted, copying files)"
     else
       touch "$_cp_path/.skipping"
@@ -203,11 +230,16 @@ function checkout_and_copy_br {
 
   # current commit at origin (no checkout in repo, ref unchanged)
   local _origin_ref
-  _origin_ref=$(git rev-parse origin/$_br 2>/dev/null) || { mustsay "..no origin/$_br, skip"; return; }
+  _origin_ref=$(git rev-parse origin/$_br 2>/dev/null) || {
+    mustsay "..no origin/$_br, skip"
+    return
+  }
 
   # initial copy when dir is empty
   if [[ -z $(/bin/ls -A $_cp_path 2>/dev/null) ]]; then
-    git archive origin/$_br | tar -x -C $_cp_path && echo -n "$_origin_ref" > "${_cp_path}/.git-rev" && say "..copy files for [ $_br ]"
+    git archive origin/$_br | tar -x -C $_cp_path && \
+      echo -n "$_origin_ref" > "${_cp_path}/.git-rev" && \
+      say "..copy files for [ $_br ]"
   fi
 
   local _stored_ref
@@ -265,6 +297,8 @@ function fetch_and_check {
   local _br
   local _release
   local _bp
+  local _br_whitelist
+  _br_whitelist=$(get_branches_for_repo "$_repo")
 
   cd $_repo || { err "failed to cd to $_repo, critical issue, skip"; return 1; }
 
@@ -272,7 +306,10 @@ function fetch_and_check {
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
 
   say "..fetching repo ..."
-  _timeout git fetch -q --all --tags --prune || { err "failed to fetch repo $_repo, skip"; return 1; }
+  _timeout git fetch -q --all --tags --prune || {
+    err "failed to fetch repo $_repo, skip"
+    return 1
+  }
 
   #for _br in `ls .git/refs/remotes/origin/`; do
   for _br in $(git branch -r | grep -v HEAD | sed -e 's/.*origin\///'); do
@@ -280,8 +317,8 @@ function fetch_and_check {
     (echo "$_br" | grep -q '/') && continue
 
     # check branch whitelist || repo dir exists already
-    if [[ $BR_WHITELIST =~ (^|[[:space:]])$_br($|[[:space:]]) ]] || [[ -d "${DIR_COPIES}/${_repo}.${_br}" ]]; then
-        checkout_and_copy_br $_repo $_br
+    if [[ $_br_whitelist =~ (^|[[:space:]])$_br($|[[:space:]]) ]] || [[ -d "${DIR_COPIES}/${_repo}.${_br}" ]]; then
+        checkout_and_copy_br $_repo $_br "$_br_whitelist"
 
         # heart beat
         touch "${DIR_COPIES}/${_repo}.${_br}/.living"
@@ -332,7 +369,10 @@ function main_loop {
   local _worker_pid
   local _worker_failed=0
   
-  cd $DIR_REPOS || { err "failed to cd to DIR_REPOS: $DIR_REPOS, critical issue, abort"; exit 1; }
+  cd $DIR_REPOS || {
+    err "failed to cd to DIR_REPOS: $DIR_REPOS, critical issue, abort"
+    exit 1
+  }
 
   # loop like a daemon
   while true; do
@@ -344,10 +384,21 @@ function main_loop {
     REPOS_TO_CHECK=$(
       if [[ -n "${REPO_WHITELIST}" ]]; then
         for _repo in $REPO_WHITELIST; do
-          if [[ -d "${_repo}/.git" ]]; then echo "$_repo"; else [[ -d "${_repo}" ]] && mustsay "WARN: [${_repo}] not a git repo, skip" >&2 || mustsay "WARN: [${_repo}] not found in $DIR_REPOS, skip" >&2; fi
+          if [[ -d "${_repo}/.git" ]]; then
+            echo "$_repo"
+          else
+            if [[ -d "${_repo}" ]]; then
+              mustsay "WARN: [${_repo}] not a git repo, skip" >&2
+            else
+              mustsay "WARN: [${_repo}] not found in $DIR_REPOS, skip" >&2
+            fi
+          fi
         done
       else
-        for _repo in $(/bin/ls -d */ 2>/dev/null); do _repo=${_repo%/}; [[ -d "${_repo}/.git" ]] && echo "$_repo"; done
+        for _repo in $(/bin/ls -d */ 2>/dev/null); do
+          _repo=${_repo%/}
+          [[ -d "${_repo}/.git" ]] && echo "$_repo"
+        done
       fi
     )
 
@@ -384,12 +435,15 @@ for c in git tar; do
   command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
 done
 # check for optional 'docker' support
-command -v docker >/dev/null || { say "docker cli not found, will skip docker restart handling"; }
+command -v docker >/dev/null || say "docker cli not found, will skip docker restart handling"
 
 ## check and init all working dirs
 # 1. check the DIR_BASE is available (sanitize&check at the time)
 _ORIG_DIR_BASE=$DIR_BASE
-DIR_BASE=$(realpath $DIR_BASE 2>/dev/null) || { err "base working dir not found: $_ORIG_DIR_BASE"; exit 1; }
+DIR_BASE=$(realpath $DIR_BASE 2>/dev/null) || {
+  err "base working dir not found: $_ORIG_DIR_BASE"
+  exit 1
+}
 # subdirs
 DIR_REPOS=${DIR_BASE}/git_repos
 DIR_COPIES=${DIR_BASE}/copies
