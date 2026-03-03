@@ -1,5 +1,4 @@
 use anyhow::Context;
-use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use std::thread;
 
@@ -16,36 +15,33 @@ fn escape_single_quoted(s: &str) -> String {
     s.replace('\'', "'\\''")
 }
 
-/// Build BR_WHITELIST (union of all repo branches) and REPO_WHITELIST (repo names) from host repos.
-fn whitelists_from_repos(repos: &[Repo]) -> (Vec<String>, Vec<String>) {
-    let br_whitelist: Vec<String> = repos
-        .iter()
-        .filter_map(|r| r.branches.as_ref())
-        .flat_map(|b| b.iter().cloned())
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
-    let repo_whitelist: Vec<String> = repos.iter().map(|r| r.name.clone()).collect();
-    (br_whitelist, repo_whitelist)
-}
+/// Build whitelists from host repos. Returns None for each value when empty.
+/// - repo_whitelist: repo names (REPO_WHITELIST), space-separated
+/// - br_whitelist_per_host: BR_WHITELIST_PER_REPO string for the script, "repo1 br1 br2|repo2 br3".
+///   Uses default_branches when a repo has no branches specified.
+fn whitelists_from_config(config: &CentralConfig, host_id: &str) -> (Option<String>, Option<String>) {
+    let repos = config.repos_for_host(host_id);
+    let default_branches = config.defaults.as_ref().and_then(|d| d.branches.as_deref());
 
-/// Build BR_WHITELIST_PER_REPO string for the script: "repo1 br1 br2|repo2 br3".
-/// Only includes repos that have branches: Some(_); repos with None are omitted (script will use BR_WHITELIST).
-fn repo_branches_string(repos: &[Repo]) -> String {
-    repos
+    let repo_whitelist: String = repos.iter().map(|r| r.name.clone()).collect::<Vec<_>>().join(" ");
+    let br_whitelist_per_host = repos
         .iter()
         .filter_map(|r| {
-            r.branches.as_ref().map(|b| {
-                let mut s = r.name.clone();
-                for br in b {
-                    s.push(' ');
-                    s.push_str(br);
-                }
-                s
-            })
+            let branches = r.branches.as_deref().or(default_branches)?;
+            let mut s = r.name.clone();
+            for br in branches {
+                s.push(' ');
+                s.push_str(br);
+            }
+            Some(s)
         })
         .collect::<Vec<_>>()
-        .join("|")
+        .join("|");
+
+    (
+        (!repo_whitelist.is_empty()).then_some(repo_whitelist),
+        (!br_whitelist_per_host.is_empty()).then_some(br_whitelist_per_host),
+    )
 }
 
 /// Check config and remotes: validate SSH/git connectivity and repo existence on each host.
@@ -166,23 +162,16 @@ pub fn run_watch(
             for (host_id, host) in &config.hosts {
                 let host_id = host_id.clone();
                 let dir_base = config.dir_base_for_host(&host_id).clone();
-                let repos = config.repos_for_host(&host_id);
-                let (br_whitelist, repo_whitelist) = whitelists_from_repos(&repos);
-                let repo_branches = repo_branches_string(&repos);
-                let repo_branches_opt = if repo_branches.is_empty() {
-                    None
-                } else {
-                    Some(repo_branches.clone())
-                };
+                let (repo_whitelist, br_whitelist_per_host) = whitelists_from_config(config, &host_id);
+                println!("repo_whitelist: {:?}, br_whitelist_per_host: {:?}", repo_whitelist, br_whitelist_per_host);
                 s.spawn(move || {
                     if let Err(e) = ops::run_check_push_remote(
                         host,
                         &host_id,
                         &dir_base,
                         CHECK_PUSH_SCRIPT,
-                        Some(br_whitelist.as_slice()),
-                        Some(repo_whitelist.as_slice()),
-                        repo_branches_opt.as_deref(),
+                        repo_whitelist.as_deref(),
+                        br_whitelist_per_host.as_deref(),
                     ) {
                         eprintln!("Error: {}: {}", host_id, e);
                     }
