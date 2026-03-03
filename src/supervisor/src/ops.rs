@@ -100,6 +100,7 @@ const CHECK_PUSH_CI_LOCK: &str = "/tmp/.auto-reloader-lock.d";
 /// Run the embedded check-push.sh script on the remote host with sandbox env.
 /// dir_base is the host's work dir (e.g. /work); script runs with DIR_BASE set and --once.
 /// When given, br_whitelist and repo_whitelist are passed as BR_WHITELIST and REPO_WHITELIST (space-separated).
+/// When given, repo_branches is passed as BR_WHITELIST_PER_REPO (format: "repo1 br1 br2|repo2 br3").
 pub fn run_check_push_remote(
     host: &Host,
     host_id: &str,
@@ -107,6 +108,7 @@ pub fn run_check_push_remote(
     script: &str,
     br_whitelist: Option<&[String]>,
     repo_whitelist: Option<&[String]>,
+    repo_branches: Option<&str>,
 ) -> Result<()> {
     let dir_base_esc = escape_single_quoted(&dir_base.to_string_lossy());
     let host_id_esc = escape_single_quoted(host_id);
@@ -117,6 +119,9 @@ pub fn run_check_push_remote(
     }
     if let Some(v) = repo_whitelist {
         env_parts.push(format!("REPO_WHITELIST={}", escape_single_quoted(&v.join(" "))));
+    }
+    if let Some(s) = repo_branches {
+        env_parts.push(format!("BR_WHITELIST_PER_REPO={}", escape_single_quoted(s)));
     }
     let extra = if env_parts.is_empty() {
         String::new()

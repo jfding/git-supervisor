@@ -29,6 +29,25 @@ fn whitelists_from_repos(repos: &[Repo]) -> (Vec<String>, Vec<String>) {
     (br_whitelist, repo_whitelist)
 }
 
+/// Build BR_WHITELIST_PER_REPO string for the script: "repo1 br1 br2|repo2 br3".
+/// Only includes repos that have branches: Some(_); repos with None are omitted (script will use BR_WHITELIST).
+fn repo_branches_string(repos: &[Repo]) -> String {
+    repos
+        .iter()
+        .filter_map(|r| {
+            r.branches.as_ref().map(|b| {
+                let mut s = r.name.clone();
+                for br in b {
+                    s.push(' ');
+                    s.push_str(br);
+                }
+                s
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 /// Check config and remotes: validate SSH/git connectivity and repo existence on each host.
 pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
@@ -149,6 +168,12 @@ pub fn run_watch(
                 let dir_base = config.dir_base_for_host(&host_id).clone();
                 let repos = config.repos_for_host(&host_id);
                 let (br_whitelist, repo_whitelist) = whitelists_from_repos(&repos);
+                let repo_branches = repo_branches_string(&repos);
+                let repo_branches_opt = if repo_branches.is_empty() {
+                    None
+                } else {
+                    Some(repo_branches.clone())
+                };
                 s.spawn(move || {
                     if let Err(e) = ops::run_check_push_remote(
                         host,
@@ -157,6 +182,7 @@ pub fn run_watch(
                         CHECK_PUSH_SCRIPT,
                         Some(br_whitelist.as_slice()),
                         Some(repo_whitelist.as_slice()),
+                        repo_branches_opt.as_deref(),
                     ) {
                         eprintln!("Error: {}: {}", host_id, e);
                     }
