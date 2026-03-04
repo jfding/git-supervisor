@@ -9,7 +9,7 @@ cp $TOPDIR/src/*.sh $BUILDDIR
 
 # Copy Rust source code for Docker build
 mkdir -p $BUILDDIR/src/check-push-rs
-cp -r $TOPDIR/src/check-push-rs/* $BUILDDIR/src/check-push-rs/
+cp -r $TOPDIR/check-push-rs/* $BUILDDIR/src/check-push-rs/
 
 cd $TOPDIR/src/gh-webhook/
 uv build

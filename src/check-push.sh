@@ -17,7 +17,7 @@ set -o pipefail
 # whitelist of repos to checkout
 : "${BR_WHITELIST:=main master dev test alpha}"
 # whitelist of repos to check (empty = scan all repos in work dir)
-: "${BR_WHITELIST_PER_REPO:=}"
+: "${REPO_WHITELIST:=}"
 
 BASHPID=$(echo $$ | tr -d '\n')
 
@@ -71,10 +71,12 @@ function err {
 # else BR_WHITELIST.
 function get_branches_for_repo {
   local _repo_name=$1
+
   if [[ -z "${BR_WHITELIST_PER_REPO:-}" ]]; then
     echo "$BR_WHITELIST"
     return
   fi
+
   local _segment
   while IFS= read -r _segment; do
     if [[ $_segment == $_repo_name\ * ]] || [[ $_segment == "$_repo_name" ]]; then
