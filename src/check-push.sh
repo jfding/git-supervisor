@@ -331,13 +331,17 @@ function fetch_and_check {
 
   ## iterate each branch
 
-  for _br in $(git branch -r | grep -v HEAD | sed -e 's/.*origin\///'); do
+  # get list via git for-each-ref, remove 'origin/' prefix, skip HEAD and symbolic refs
+  for _br in $(git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin); do
+    # filters
     [[ $_br = 'HEAD' ]] && continue
     (echo "$_br" | grep -q '/') && continue
 
     # check branch whitelist || repo dir exists already
-    if [[ $_br_whitelist =~ (^|[[:space:]])$_br($|[[:space:]]) ]] || [[ -d "${DIR_COPIES}/${_repo}.${_br}" ]]; then
-        checkout_and_copy_br $_repo $_br "$_br_whitelist"
+    if [[ $_br_whitelist =~ (^|[[:space:]])$_br($|[[:space:]]) ]] || \
+       [[ -d "${DIR_COPIES}/${_repo}.${_br}" ]]; then
+
+        checkout_and_copy_br $_repo $_br "$_br_whitelist" || continue
 
         # heart beat
         touch "${DIR_COPIES}/${_repo}.${_br}/.living"
