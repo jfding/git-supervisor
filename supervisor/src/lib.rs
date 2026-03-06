@@ -167,6 +167,7 @@ pub fn run_watch(
                 let dir_base = config.dir_base_for_host(&host_id).clone();
                 let (repo_whitelist, br_whitelist_per_host) = whitelists_from_config(config, &host_id);
 
+                let release_count = host.release_count;
                 s.spawn(move || {
                     if let Err(e) = ops::run_check_push_remote(
                         host,
@@ -175,6 +176,7 @@ pub fn run_watch(
                         CHECK_PUSH_SCRIPT,
                         repo_whitelist.as_deref(),
                         br_whitelist_per_host.as_deref(),
+                        release_count,
                     ) {
                         eprintln!("Error: {}: {}", host_id, e);
                     }

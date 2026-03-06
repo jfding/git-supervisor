@@ -9,7 +9,7 @@ See the [design doc](../../docs/plans/2025-02-22-central-supervisor-design.md) f
 - **Top level:** `defaults` (optional), `repos` (optional), `hosts` (required).
 - **Defaults:** `dir_base`, `branches` (optional; used when a host repo entry doesn't set branches).
 - **Repos:** map of repo name → definition (`git_url` only). Hosts reference these by name. Branches are not set here.
-- **Per host:** `ssh_target` (e.g. `user@host`), optional `ssh_port`, `ssh_identity_file`, `dir_base`; `repos`: list of repo names or `{ name, branches? }` entries. Branches are configured only here (per host, per repo).
+- **Per host:** `ssh_target` (e.g. `user@host`), optional `ssh_port`, `ssh_identity_file`, `dir_base`, optional `release_count`; `repos`: list of repo names or `{ name, branches? }` entries. Branches are configured only here (per host, per repo). When set, `release_count` is passed to the remote check-push script as env `RELEASE_TAG_TOPN` (number of release tags to consider; script default is 4).
 
 Example:
 
@@ -28,6 +28,7 @@ hosts:
   app-server:
     ssh_target: deploy@app-server.example.com
     ssh_identity_file: ~/.ssh/deploy_key
+    release_count: 8   # optional; passed as RELEASE_TAG_TOPN on remote
     repos:
       - webapp
       - name: api

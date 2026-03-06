@@ -60,6 +60,9 @@ pub struct Host {
     /// List of repo refs (name or { name, branches? }). Must exist in top-level `repos`.
     #[serde(default)]
     pub repos: Vec<HostRepoRef>,
+    /// Per-host: number of release tags to consider (top-N). Passed to remote script as RELEASE_TAG_TOPN.
+    #[serde(default)]
+    pub release_count: Option<u32>,
 }
 
 /// Repo definition (git_url only). Key in `repos` map is the repo name. Branches are set per host/repo.
@@ -311,5 +314,23 @@ hosts:
         let other_repos = config.repos_for_host("other-host");
         assert_eq!(other_repos.len(), 1);
         assert_eq!(other_repos[0].branches, Some(vec!["main".to_string(), "master".to_string()]));
+    }
+
+    #[test]
+    fn host_release_count_parsed() {
+        let yaml = r#"
+repos: {}
+hosts:
+  with-count:
+    ssh_target: u@h
+    repos: []
+    release_count: 10
+  without-count:
+    ssh_target: u@h2
+    repos: []
+"#;
+        let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.hosts.get("with-count").unwrap().release_count, Some(10));
+        assert_eq!(config.hosts.get("without-count").unwrap().release_count, None);
     }
 }

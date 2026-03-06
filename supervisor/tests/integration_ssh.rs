@@ -24,7 +24,7 @@ hosts:
     std::fs::write(&path, yaml).unwrap();
 
     let config = CentralConfig::load(&path).unwrap();
-    let result = run_watch(&config, 120, Some(1), false);
+    let result = run_watch(&config, 120, Some(1), false, false);
     let _ = std::fs::remove_file(&path);
     // May fail if git not installed on localhost or clone fails; we only check it doesn't panic.
     let _ = result;
