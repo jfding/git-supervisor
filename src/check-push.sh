@@ -189,13 +189,9 @@ function checkout_and_copy_tag {
   local _tag=$2
 
   local _cp_path="${DIR_COPIES}/${_repo}.prod.${_tag}"
-  local _arch_path="${DIR_COPIES}/.archives/${_repo}.prod.${_tag}"
 
-  # if path exists, skip, but mark it as valid work copy
-  [[ -d $_cp_path ]] && return 0
-
-  # if path exists with dot prefix, skip
-  [[ -d $_arch_path ]] && return 1
+  # if path exists, skip but consider successful
+  [[ -d $_cp_path ]] && return
 
   # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
   say "..copying files for new RELEASE [ $_tag ]"
