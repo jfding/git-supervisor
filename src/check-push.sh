@@ -25,30 +25,10 @@ set -o pipefail
 # optional exclude pattern (ERE): tags matching this are skipped (e.g. pre-releases)
 # default empty = no exclusion. Example: -alpha|-beta|-rc|-SNAPSHOT
 : "${RELEASE_TAG_EXCLUDE_PATTERN:=}"
+# Need only handle top-N releases only (0 means all, default is 4)
+: "${RELEASE_TAG_TOPN:=4}"
 
 BASHPID=$(echo $$ | tr -d '\n')
-
-function _version_less_than {
-  if [[ -z $1 ]] || [[ -z $2 ]]; then
-    return 100
-  fi
-  if [[ $1 == $2 ]]; then
-    return 2
-  fi
-
-  python3 -c "
-import sys
-v1, v2 = sys.argv[1].lstrip('v'), sys.argv[2].lstrip('v')
-n1 = [[int(y) for y in x.split('Q')] for x in v1.split('.')]
-n1 = [item for sublist in n1 for item in sublist]
-n2 = [[int(y) for y in x.split('Q')] for x in v2.split('.')]
-n2 = [item for sublist in n2 for item in sublist]
-max_len = max(len(n1), len(n2))
-n1.extend([0] * (max_len - len(n1)))
-n2.extend([0] * (max_len - len(n2)))
-sys.exit(0 if n1 < n2 else (1 if n1 > n2 else 2))
-" $1 $2
-}
 
 function _logging {
     local _level=$1; shift
@@ -75,11 +55,32 @@ function err {
 
 # Print release tags for current repo (must be in repo dir).
 # Uses RELEASE_TAG_PATTERN (ERE) and optionally filters out RELEASE_TAG_EXCLUDE_PATTERN.
+# optional arg: top-N releases only (default to use global RELEASE_TAG_TOPN)
 function get_release_tags {
   local _tags
+  local _topn=${1:-$RELEASE_TAG_TOPN}
+
   _tags=$(git tag -l | grep -E -- "${RELEASE_TAG_PATTERN}" || true)
   [[ -n "${RELEASE_TAG_EXCLUDE_PATTERN:-}" ]] && \
     _tags=$(echo "${_tags}" | grep -v -E -- "${RELEASE_TAG_EXCLUDE_PATTERN}" || true)
+
+  [[ -z "${_tags}" ]] && return
+
+  # (reverse)sort tags by version number
+  _tags=$(echo "${_tags}" | grep -v '^[[:space:]]*$' | python3 -c "
+import sys
+def key(tag):
+    s = tag.strip().lstrip('v')
+    parts = [[int(y) for y in x.split('Q')] for x in s.split('.')]
+    return [item for sublist in parts for item in sublist]
+lines = [l for l in sys.stdin if l.strip()]
+lines.sort(key=key, reverse=True)
+for t in lines:
+    print(t, end='')
+")
+
+  # get topN only
+  [[ $_topn -gt 0 ]] && _tags=$(echo "${_tags}" | head -n $_topn)
 
   echo "${_tags}"
 }
@@ -191,14 +192,13 @@ function checkout_and_copy_tag {
   local _arch_path="${DIR_COPIES}/.archives/${_repo}.prod.${_tag}"
   local _post_path="${DIR_COPIES}/${_repo}.prod.post"
   local _docker_path="${DIR_COPIES}/${_repo}.prod.docker"
-  local _latest_path="${DIR_COPIES}/${_repo}.prod.latest"
 
   # if path exists, skip
   [[ -d $_cp_path ]] && return
 
   # if path exists with dot prefix, skip
   [[ -d $_arch_path ]] && return
-  
+
   # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
   say "..copying files for new RELEASE [ $_tag ]"
   mkdir -p $_cp_path &&
@@ -207,18 +207,6 @@ function checkout_and_copy_tag {
       err "failed to copy files for new RELEASE [ $_tag ]"
       return 1
     }
-
-  if [[ -L $_latest_path ]]; then
-    local _cur_latest_path=$(readlink $_latest_path)
-    local _cur_latest_tag=$(basename $_cur_latest_path | sed 's/.*\.prod\.//')
-
-    if _version_less_than $_cur_latest_tag $_tag; then
-      rm -f $_latest_path
-      ln -sf $(basename $_cp_path) $_latest_path
-    fi
-  else
-    ln -sf $(basename $_cp_path) $_latest_path
-  fi
 
   # post scripts
   _handle_post ${_post_path} ${_cp_path}
@@ -353,7 +341,8 @@ function fetch_and_check {
     return 1
   }
 
-  #for _br in `ls .git/refs/remotes/origin/`; do
+  ## iterate each branch
+
   for _br in $(git branch -r | grep -v HEAD | sed -e 's/.*origin\///'); do
     [[ $_br = 'HEAD' ]] && continue
     (echo "$_br" | grep -q '/') && continue
@@ -367,9 +356,26 @@ function fetch_and_check {
     fi
   done
 
-  for _release in $(get_release_tags); do
+  ## iterate each release tag
+
+  local _releases=$(get_release_tags)
+  local _latest_release=$(echo $_releases | cut -d' ' -f1)
+
+  for _release in $_releases; do
     [[ -z "$_release" ]] && continue
     checkout_and_copy_tag $_repo $_release
+
+    # update latest version path symlink
+    if [[ $_release == $_latest_release ]]; then
+      local _latest_link="${DIR_COPIES}/${_repo}.prod.latest"
+      local _latest_path=$(readlink $_latest_link || echo "")
+      local _cur_release_path="${DIR_COPIES}/${_repo}.prod.${_release}"
+
+      [[ $_latest_path != $_cur_release_path ]] && {
+        rm -f $_latest_link
+        ln -sf $(basename $_cur_release_path) $_latest_link
+      }
+    fi
 
     # heart beat
     if [[ -d "${DIR_COPIES}/${_repo}.prod.${_release}" ]]; then
@@ -411,7 +417,7 @@ function main_loop {
   local _repo
   local _worker_pid
   local _worker_failed=0
-  
+
   cd $DIR_REPOS || {
     err "failed to cd to DIR_REPOS: $DIR_REPOS, critical issue, abort"
     exit 1
