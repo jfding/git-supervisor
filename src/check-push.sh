@@ -157,6 +157,13 @@ function _handle_docker {
     fi
 }
 
+# extract ref (tag or branch) to dest dir
+function _git_checkout_ref_to {
+  local _ref=$1
+  local _dest=$2
+  git archive "$_ref" | tar -x -C "$_dest"
+}
+
 # expect one argument "tag_name"
 function checkout_and_copy_tag {
   local _repo=$1
@@ -175,9 +182,13 @@ function checkout_and_copy_tag {
   [[ -d $_arch_path ]] && return
   
   # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
-  mkdir -p $_cp_path && \
-    git archive $_tag | tar -x -C $_cp_path && \
-    say "..copy files for new RELEASE [ $_tag ]"
+  say "..copying files for new RELEASE [ $_tag ]"
+  mkdir -p $_cp_path &&
+    _git_checkout_ref_to $_tag $_cp_path || {
+      rm -rf $_cp_path
+      err "failed to copy files for new RELEASE [ $_tag ]"
+      return 1
+    }
 
   if [[ -L $_latest_path ]]; then
     local _cur_latest_path=$(readlink $_latest_path)
@@ -239,9 +250,12 @@ function checkout_and_copy_br {
 
   # initial copy when dir is empty
   if [[ -z $(/bin/ls -A $_cp_path 2>/dev/null) ]]; then
-    git archive origin/$_br | tar -x -C $_cp_path && \
-      echo -n "$_origin_ref" > "${_cp_path}/.git-rev" && \
-      say "..copy files for [ $_br ]"
+    say "..copying files for [ $_br ]"
+    _git_checkout_ref_to origin/$_br $_cp_path || {
+      err "failed to copy files for [ $_br ]"
+      return 1
+    }
+    echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
   fi
 
   local _stored_ref
@@ -271,12 +285,20 @@ function checkout_and_copy_br {
     say "..UPDATING branch [ $_br ]"
     if [[ -f "${_cp_path}/.no-cleanup" ]]; then
       # overwrite only, do not remove extra files
-      git archive origin/$_br | tar -x -C $_cp_path
+      _git_checkout_ref_to origin/$_br $_cp_path || {
+        err "failed to copy files for [ $_br ]"
+        return 1
+      }
     else
       # full refresh: extract to new dir, preserve flags, then mv into place
       local _staging="${_cp_path}.staging.$$"
       mkdir -p "$_staging"
-      git archive origin/$_br | tar -x -C "$_staging"
+      _git_checkout_ref_to origin/$_br "$_staging" || {
+        rm -rf $_staging
+        err "failed to copy files for [ $_br ]"
+        return 1
+      }
+
       for _f in .no-cleanup .living .skipping .debugging; do
         [[ -e "${_cp_path}/${_f}" ]] && cp -p "${_cp_path}/${_f}" "${_staging}/"
       done
