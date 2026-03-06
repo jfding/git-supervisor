@@ -19,6 +19,13 @@ set -o pipefail
 # whitelist of repos to check (empty = scan all repos in work dir)
 : "${REPO_WHITELIST:=}"
 
+# release tag pattern (ERE): only tags matching this are deployed as releases
+# default: v plus one or more of 0-9, Q, or dot (e.g. v1.0, v1.2.Q3, v2025Q4.2.0)
+: "${RELEASE_TAG_PATTERN:=^v[0-9Q.]+$}"
+# optional exclude pattern (ERE): tags matching this are skipped (e.g. pre-releases)
+# default empty = no exclusion. Example: -alpha|-beta|-rc|-SNAPSHOT
+: "${RELEASE_TAG_EXCLUDE_PATTERN:=}"
+
 BASHPID=$(echo $$ | tr -d '\n')
 
 function _version_less_than {
@@ -64,6 +71,17 @@ function verbose {
 }
 function err {
   mustsay "ERROR: $@"
+}
+
+# Print release tags for current repo (must be in repo dir).
+# Uses RELEASE_TAG_PATTERN (ERE) and optionally filters out RELEASE_TAG_EXCLUDE_PATTERN.
+function get_release_tags {
+  local _tags
+  _tags=$(git tag -l | grep -E -- "${RELEASE_TAG_PATTERN}" || true)
+  [[ -n "${RELEASE_TAG_EXCLUDE_PATTERN:-}" ]] && \
+    _tags=$(echo "${_tags}" | grep -v -E -- "${RELEASE_TAG_EXCLUDE_PATTERN}" || true)
+
+  echo "${_tags}"
 }
 
 # Return space-separated branch list for the given repo.
@@ -349,7 +367,8 @@ function fetch_and_check {
     fi
   done
 
-  for _release in $(git tag -l | grep '^v[Q0-9.]\+$'); do
+  for _release in $(get_release_tags); do
+    [[ -z "$_release" ]] && continue
     checkout_and_copy_tag $_repo $_release
 
     # heart beat
