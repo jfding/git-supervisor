@@ -190,14 +190,12 @@ function checkout_and_copy_tag {
 
   local _cp_path="${DIR_COPIES}/${_repo}.prod.${_tag}"
   local _arch_path="${DIR_COPIES}/.archives/${_repo}.prod.${_tag}"
-  local _post_path="${DIR_COPIES}/${_repo}.prod.post"
-  local _docker_path="${DIR_COPIES}/${_repo}.prod.docker"
 
-  # if path exists, skip
-  [[ -d $_cp_path ]] && return
+  # if path exists, skip, but mark it as valid work copy
+  [[ -d $_cp_path ]] && return 0
 
   # if path exists with dot prefix, skip
-  [[ -d $_arch_path ]] && return
+  [[ -d $_arch_path ]] && return 1
 
   # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
   say "..copying files for new RELEASE [ $_tag ]"
@@ -207,12 +205,6 @@ function checkout_and_copy_tag {
       err "failed to copy files for new RELEASE [ $_tag ]"
       return 1
     }
-
-  # post scripts
-  _handle_post ${_post_path} ${_cp_path}
-
-  # restart docker instance
-  _handle_docker ${_docker_path}
 }
 
 # expect repo, branch, and optional per-repo branch list (default BR_WHITELIST)
@@ -363,7 +355,7 @@ function fetch_and_check {
 
   for _release in $_releases; do
     [[ -z "$_release" ]] && continue
-    checkout_and_copy_tag $_repo $_release
+    checkout_and_copy_tag $_repo $_release || continue
 
     # update latest version path symlink
     if [[ $_release == $_latest_release ]]; then
@@ -375,6 +367,11 @@ function fetch_and_check {
         rm -f $_latest_link
         ln -sf $(basename $_cur_release_path) $_latest_link
       }
+
+      # post scripts
+      _handle_post "${DIR_COPIES}/${_repo}.prod.post" ${_cur_release_path}
+      # restart docker instance
+      _handle_docker "${DIR_COPIES}/${_repo}.prod.docker"
     fi
 
     # heart beat
