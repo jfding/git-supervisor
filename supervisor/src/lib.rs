@@ -166,21 +166,20 @@ pub fn run_watch(
                 let host_id = host_id.clone();
                 let dir_base = config.dir_base_for_host(&host_id).clone();
                 let (repo_whitelist, br_whitelist_per_host) = whitelists_from_config(config, &host_id);
-
-                let release_count = host.release_count;
-                let release_tag_pattern = host.release_tag_pattern.clone();
-                let release_tag_exclude_pattern = host.release_tag_exclude_pattern.clone();
+                let check_push_env = ops::CheckPushEnv {
+                    repo_whitelist,
+                    repo_branches: br_whitelist_per_host,
+                    release_tag_topn: host.release_count,
+                    release_tag_pattern: host.release_tag_pattern.clone(),
+                    release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
+                };
                 s.spawn(move || {
                     if let Err(e) = ops::run_check_push_remote(
                         host,
                         &host_id,
                         &dir_base,
                         CHECK_PUSH_SCRIPT,
-                        repo_whitelist.as_deref(),
-                        br_whitelist_per_host.as_deref(),
-                        release_count,
-                        release_tag_pattern.as_deref(),
-                        release_tag_exclude_pattern.as_deref(),
+                        &check_push_env,
                     ) {
                         eprintln!("Error: {}: {}", host_id, e);
                     }
