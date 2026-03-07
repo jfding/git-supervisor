@@ -24,6 +24,7 @@ RUN apt-get update && \
 COPY dot.ssh/* /root/.ssh/
 
 RUN mkdir -p /scripts
+COPY VERSION /scripts/VERSION
 COPY check-push.sh /scripts
 COPY prod2latest.sh /scripts
 COPY cleanup-archives.sh /scripts

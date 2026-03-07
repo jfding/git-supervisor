@@ -1,9 +1,25 @@
 # Git Supervisor — monitor git repos and deploy to working environments
 
+## Versioning
+
+The project uses a single source of truth for version: the **`VERSION`** file at the repo root (e.g. `1.0.0`).
+
+- **Scripts**: Run `check-push.sh --version` / `-V` prints it. In the Docker image, `VERSION` is copied to `/scripts/VERSION`.
+- **gh-webhook**: Reads version from `/scripts/VERSION` at runtime. `GET /version` returns `{"version": "1.0.0"}`; webhook responses include `version` when available.
+- **supervisor** (Rust): Build reads `VERSION` from the repo root and sets the binary version; `supervisor --version` shows it. If `VERSION` is missing, `Cargo.toml` package version is used.
+
+To set the version everywhere (e.g. for a release), run:
+
+```bash
+./scripts/set-version.sh 1.2.3
+```
+
+This updates `VERSION`, `supervisor/Cargo.toml`, and `gh-webhook/pyproject.toml`.
+
 ## Scripts
 
 - `src/check-push.sh`: **main** logic of the engine, can be called by web hook or by timer loop
-- `src/prod2latest.sh`: shell script to be run in **HOST** env, to figure out the latest version
+- `src/prod2latest.sh`: shell script to be run in **HOST** env, to figure out the latest hersion
   release code copy and update the latest symlinks.
 - `src/cleanup-archives.sh`: shell script to clean up archive files under *<work>/copies/.archives/*
 

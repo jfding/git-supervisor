@@ -2,8 +2,11 @@ use clap::Parser;
 use std::path::PathBuf;
 use supervisor::{run_check, run_watch, CentralConfig};
 
+/// Version from repo VERSION file (set in build.rs).
+const APP_VERSION: &str = env!("APP_VERSION");
+
 #[derive(Parser)]
-#[command(name = "supervisor")]
+#[command(name = "supervisor", version = APP_VERSION)]
 struct Cli {
     /// Config file path
     #[arg(global = true, default_value = "deployments.yaml")]

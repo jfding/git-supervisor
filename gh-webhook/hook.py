@@ -14,6 +14,16 @@ GITHUB_SECRET = 'bzpEZb1N6LY5O2woay7QB0NtKVXiSo2O'
 # Check if Rust binary should be used
 USE_RUST = os.environ.get('USE_RUST', '0') == '1'
 
+def _app_version():
+    """Read project version from VERSION file (in container or repo root)."""
+    for path in ('/scripts/VERSION', '/app/VERSION', 'VERSION'):
+        try:
+            with open(path) as f:
+                return f.read().strip()
+        except OSError:
+            continue
+    return None
+
 def verify_signature(payload_body, signature_header):
     """Verify that the payload was sent from GitHub by validating SHA256.
        Raise and return 403 if not authorized.
@@ -23,6 +33,13 @@ def verify_signature(payload_body, signature_header):
     hash_object = hmac.new(GITHUB_SECRET.encode('utf-8'), msg=payload_body, digestmod=hashlib.sha256)
     expected_signature = "sha256=" + hash_object.hexdigest()
     return hmac.compare_digest(expected_signature, signature_header)
+
+@app.route('/version', methods=['GET'])
+def version():
+    """Return the project version (from VERSION file)."""
+    v = _app_version()
+    return jsonify({'version': v or 'unknown'}), 200
+
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -44,7 +61,11 @@ def webhook():
 
         try:
             subprocess.run([script_path] + ['--once'], check=True)
-            return jsonify({'status': 'CI job started', 'version': 'rust' if USE_RUST else 'bash'}), 200
+            version = _app_version()
+            payload = {'status': 'CI job started', 'engine': 'rust' if USE_RUST else 'bash'}
+            if version:
+                payload['version'] = version
+            return jsonify(payload), 200
         except subprocess.CalledProcessError as e:
             return jsonify({'error': f'Script execution failed: {e}'}), 500
 

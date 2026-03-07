@@ -6,6 +6,7 @@ BUILDDIR=$(pwd)
 TOPDIR=$(cd ../../; pwd)
 
 cp $TOPDIR/src/*.sh $BUILDDIR
+cp $TOPDIR/VERSION $BUILDDIR
 
 # Copy Rust source code for Docker build
 mkdir -p $BUILDDIR/src/check-push-rs
@@ -20,5 +21,5 @@ cd $BUILDDIR
 docker build -t rushiai/auto-reloader:$TODAY .
 
 # clean up
-rm -f *.whl hook.py check-push.sh prod2latest.sh cleanup-archives.sh
+rm -f *.whl hook.py check-push.sh prod2latest.sh cleanup-archives.sh VERSION
 rm -rf src/
