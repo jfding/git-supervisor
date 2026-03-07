@@ -187,6 +187,11 @@ pub fn run_watch(
             }
         });
 
+        if interval_secs == 0 {
+            eprintln!("interval is 0, run once and quit");
+            break;
+        }
+
         let sleep_duration = match deadline {
             Some(d) => {
                 let remaining = d.saturating_duration_since(Instant::now());

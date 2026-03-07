@@ -26,7 +26,7 @@ enum Command {
 
 #[derive(clap::Args)]
 struct WatchArgs {
-    /// Seconds between each round of check-push on all hosts
+    /// Seconds between each round of check-push on all hosts; 0 = run once and quit
     #[arg(long, default_value = "120")]
     interval: u64,
     /// Stop after this many seconds (default: run until interrupted)
