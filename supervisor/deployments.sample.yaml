@@ -2,13 +2,13 @@
 # Copy to deployments.yaml and edit. Run: supervisor check --config deployments.yaml
 
 defaults:
-  dir_base: /srv/auto-reloader/work
+  dir_base: /srv/git-supervisor/work
   branches: [main, master]  # default for hosts that don't set branches per repo
 
 # Define repos once (git_url only); hosts reference them by name and set branches per host/repo.
 repos:
-  auto-reloader:
-    git_url: git@github.com:org/auto-reloader.git
+  git-supervisor:
+    git_url: git@github.com:org/git-supervisor.git
   webapp:
     git_url: git@github.com:org/webapp.git
 
@@ -28,12 +28,14 @@ hosts:
     ssh_target: ops@devops-server.ai
     ssh_port: 2222
     ssh_identity_file: ~/.ssh/deploy_key
-    dir_base: /srv/auto-reloader/work
+
     release_count: 6        # optional, default 4
     # release_tag_pattern: "^v[0-9Q.]+$"       # optional; passed as RELEASE_TAG_PATTERN
     # release_tag_exclude_pattern: "^v0\\."   # optional; passed as RELEASE_TAG_EXCLUDE_PATTERN
+
+    dir_base: /srv/auto-reloader/work
     repos:
-      - name: auto-reloader
+      - name: git-supervisor
         branches: [main, dev]
       - name: webapp
         branches: [main, release]

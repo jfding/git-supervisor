@@ -1,22 +1,15 @@
-# Auto reload scripts and web hook for Rushi App DevOps
+# Git Supervisor — monitor git repos and deploy to working environments
 
-## Scripts
+## Contents
 
+- supervisor: central supervisor for to control all remote hosts and repos
 - `src/check-push.sh`: **main** logic of the engine, can be called by web hook or by timer loop
-- `src/prod2latest.sh`: shell script to be run in **HOST** env, to figure out the latest version
-  release code copy and update the latest symlinks.
-- `src/cleanup-archives.sh`: shell script to clean up archive files under *<work>/copies/.archives/*
-
-## Sub-project
-
 - gh-webhook: hook service to listen for github.com callbacks. Once triggered, will run
   check-push.sh shell script to have one-shot check.
-- check-push-rs: Re-implimentation of check-push.sh in Rust
-- supervisor: central supervisor for to control all remote hosts and repos
 
 ## Usage
 
-### Setup
+### Run by Docker
 
 - Sample settings in docker-compose.yml in the code tree.
 - Volume <work> to store all the data: git_repos, (code)copies, scripts.
@@ -46,7 +39,37 @@ In HOST, under the path *<work-volume>/git_repos/*, just use the regular `git cl
 
 All the scripts will be visible to HOST in the path: *<work-volume>/scripts/*.
 
-## how to test
+## Development
+
+### Design
+
+The logic in the central check-push.sh script:
+
+**Flow**
+
+![Flow](docs/imgs/flowchart.png)
+
+**Sequence**
+
+![Sequence](docs/imgs/seqdiagram.png)
+
+### Versioning
+
+The project uses a single source of truth for version: the **`VERSION`** file at the repo root (e.g. `1.0.0`).
+
+- **Scripts**: Run `check-push.sh --version` / `-V` prints it. In the Docker image, `VERSION` is copied to `/scripts/VERSION`.
+- **gh-webhook**: Reads version from `/scripts/VERSION` at runtime. `GET /version` returns `{"version": "1.0.0"}`; webhook responses include `version` when available.
+- **supervisor** (Rust): Build reads `VERSION` from the repo root and sets the binary version; `supervisor --version` shows it. If `VERSION` is missing, `Cargo.toml` package version is used.
+
+To set the version everywhere (e.g. for a release), run:
+
+```bash
+./scripts/set-version.sh 1.2.3
+```
+
+This updates `VERSION`, `supervisor/Cargo.toml`, and `gh-webhook/pyproject.toml`.
+
+### how to test
 
 - first time to launch all tests: `./tests/launch-testing.sh`
 - if testing env is ready, to run: `./tests/scripts/test-check-push.sh`

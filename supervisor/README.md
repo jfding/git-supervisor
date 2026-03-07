@@ -1,6 +1,6 @@
 # supervisor
 
-Central supervisor for the auto-reloader: reads a single YAML config and, for each configured remote host, creates dirs and prepares git repos (clone or fetch) over SSH. The supervisor does **not** start or restart the check-push daemon on remotes; that is left to systemd or your process manager.
+Central supervisor for Git Supervisor: reads a single YAML config and, for each configured remote host, creates dirs and prepares git repos (clone or fetch) over SSH. The supervisor does **not** start or restart the check-push daemon on remotes; that is left to systemd or your process manager.
 
 See the [design doc](../../docs/plans/2025-02-22-central-supervisor-design.md) for architecture and flow.
 

@@ -2,8 +2,11 @@ use clap::Parser;
 use std::path::PathBuf;
 use supervisor::{run_check, run_watch, CentralConfig};
 
+/// Version from repo VERSION file (set in build.rs).
+const APP_VERSION: &str = env!("APP_VERSION");
+
 #[derive(Parser)]
-#[command(name = "supervisor")]
+#[command(name = "supervisor", version = APP_VERSION)]
 struct Cli {
     /// Config file path
     #[arg(global = true, default_value = "deployments.yaml")]
@@ -23,7 +26,7 @@ enum Command {
 
 #[derive(clap::Args)]
 struct WatchArgs {
-    /// Seconds between each round of check-push on all hosts
+    /// Seconds between each round of check-push on all hosts; 0 = run once and quit
     #[arg(long, default_value = "120")]
     interval: u64,
     /// Stop after this many seconds (default: run until interrupted)

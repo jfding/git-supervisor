@@ -1,13 +1,15 @@
-# Build stage for Rust binary
+# Build stage for supervisor binary
 FROM rust:1.75-slim as rust-builder
 
 WORKDIR /build
-COPY src/check-push-rs /build
-RUN cargo build --release
+COPY VERSION /build/VERSION
+COPY supervisor /build/supervisor
+RUN cd /build/supervisor && cargo build --release
 
 # Final stage
 FROM python:3.12-slim
 
+# TODO: remove unused packages later
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     git \
@@ -24,13 +26,14 @@ RUN apt-get update && \
 COPY dot.ssh/* /root/.ssh/
 
 RUN mkdir -p /scripts
+COPY VERSION /scripts/VERSION
 COPY check-push.sh /scripts
 COPY prod2latest.sh /scripts
 COPY cleanup-archives.sh /scripts
 
-# Copy Rust binary from build stage
-COPY --from=rust-builder /build/target/release/check-push-rs /scripts/check-push-rs
-RUN chmod +x /scripts/check-push-rs
+# Copy supervisor binary from build stage
+COPY --from=rust-builder /build/supervisor/target/release/supervisor /supervisor
+RUN chmod +x /supervisor
 
 WORKDIR /webhook
 COPY hook.py /webhook

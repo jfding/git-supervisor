@@ -11,7 +11,7 @@ set -o pipefail
 : "${SLEEP_TIME:=120}"
 
 # file lock, normally need NOT change
-: "${CI_LOCK:=/tmp/.auto-reloader-lock.d}"
+: "${CI_LOCK:=/tmp/.git-supervisor-lock.d}"
 # working base dir
 : "${DIR_BASE:=/work}"
 # whitelist of repos to checkout
@@ -517,6 +517,18 @@ function main_loop {
 }
 
 ### __main__ ###
+
+if [[ "${1:-}" == "--version" ]] || [[ "${1:-}" == "-V" ]]; then
+  SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
+  for d in "$SCRIPT_DIR" "$SCRIPT_DIR/.." "/scripts"; do
+    if [[ -f "$d/VERSION" ]]; then
+      echo "check-push $(cat "$d/VERSION")"
+      exit 0
+    fi
+  done
+  echo "check-push unknown"
+  exit 0
+fi
 
 # check for required commands
 for c in git tar; do

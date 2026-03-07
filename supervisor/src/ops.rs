@@ -95,7 +95,7 @@ fi",
 /// Sandbox env defaults for running check-push.sh on the remote (one-shot, no daemon loop).
 const CHECK_PUSH_VERB: u8 = 1;
 const CHECK_PUSH_TIMEOUT: u32 = 600;
-const CHECK_PUSH_CI_LOCK: &str = "/tmp/.auto-reloader-lock.d";
+const CHECK_PUSH_CI_LOCK: &str = "/tmp/.git-supervisor-lock.d";
 
 /// Env options for running check-push on a host (REPO_WHITELIST, BR_WHITELIST_PER_REPO, RELEASE_TAG_*).
 #[derive(Default)]
