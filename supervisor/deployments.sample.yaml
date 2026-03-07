@@ -23,13 +23,15 @@ hosts:
     ssh_target: deploy@app-server.example.com
     repos: [webapp]
 
-  # Host with custom SSH key, port, dir_base, release_count, and per-repo branches
+  # Host with custom SSH key, port, dir_base, release_count, release tag patterns, and per-repo branches
   devops-server:
     ssh_target: ops@devops-server.ai
     ssh_port: 2222
     ssh_identity_file: ~/.ssh/deploy_key
     dir_base: /srv/auto-reloader/work
-    release_count: 6   # optional; passed as RELEASE_TAG_TOPN to check-push on remote (default 4)
+    release_count: 6        # optional, default 4
+    # release_tag_pattern: "^v[0-9Q.]+$"       # optional; passed as RELEASE_TAG_PATTERN
+    # release_tag_exclude_pattern: "^v0\\."   # optional; passed as RELEASE_TAG_EXCLUDE_PATTERN
     repos:
       - name: auto-reloader
         branches: [main, dev]

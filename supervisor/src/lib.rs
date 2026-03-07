@@ -168,6 +168,8 @@ pub fn run_watch(
                 let (repo_whitelist, br_whitelist_per_host) = whitelists_from_config(config, &host_id);
 
                 let release_count = host.release_count;
+                let release_tag_pattern = host.release_tag_pattern.clone();
+                let release_tag_exclude_pattern = host.release_tag_exclude_pattern.clone();
                 s.spawn(move || {
                     if let Err(e) = ops::run_check_push_remote(
                         host,
@@ -177,6 +179,8 @@ pub fn run_watch(
                         repo_whitelist.as_deref(),
                         br_whitelist_per_host.as_deref(),
                         release_count,
+                        release_tag_pattern.as_deref(),
+                        release_tag_exclude_pattern.as_deref(),
                     ) {
                         eprintln!("Error: {}: {}", host_id, e);
                     }

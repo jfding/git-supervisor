@@ -97,11 +97,13 @@ const CHECK_PUSH_VERB: u8 = 1;
 const CHECK_PUSH_TIMEOUT: u32 = 600;
 const CHECK_PUSH_CI_LOCK: &str = "/tmp/.auto-reloader-lock.d";
 
-/// Build the extra env vars string for check-push (REPO_WHITELIST, BR_WHITELIST_PER_REPO, RELEASE_TAG_TOPN).
+/// Build the extra env vars string for check-push (REPO_WHITELIST, BR_WHITELIST_PER_REPO, RELEASE_TAG_*).
 fn build_check_push_extra_env(
     repo_whitelist: Option<&str>,
     repo_branches: Option<&str>,
     release_tag_topn: Option<u32>,
+    release_tag_pattern: Option<&str>,
+    release_tag_exclude_pattern: Option<&str>,
 ) -> String {
     let mut env_parts: Vec<String> = Vec::new();
     if let Some(s) = repo_whitelist {
@@ -112,6 +114,12 @@ fn build_check_push_extra_env(
     }
     if let Some(n) = release_tag_topn {
         env_parts.push(format!("RELEASE_TAG_TOPN={}", n));
+    }
+    if let Some(s) = release_tag_pattern {
+        env_parts.push(format!("RELEASE_TAG_PATTERN={}", escape_single_quoted(s)));
+    }
+    if let Some(s) = release_tag_exclude_pattern {
+        env_parts.push(format!("RELEASE_TAG_EXCLUDE_PATTERN={}", escape_single_quoted(s)));
     }
     if env_parts.is_empty() {
         String::new()
@@ -125,6 +133,7 @@ fn build_check_push_extra_env(
 /// When given, repo_whitelist is passed as REPO_WHITELIST (space-separated).
 /// When given, repo_branches is passed as BR_WHITELIST_PER_REPO (format: "repo1 br1 br2|repo2 br3").
 /// When given, release_tag_topn is passed as RELEASE_TAG_TOPN (number of release tags to consider).
+/// When given, release_tag_pattern / release_tag_exclude_pattern are passed as RELEASE_TAG_PATTERN / RELEASE_TAG_EXCLUDE_PATTERN.
 pub fn run_check_push_remote(
     host: &Host,
     host_id: &str,
@@ -133,10 +142,18 @@ pub fn run_check_push_remote(
     repo_whitelist: Option<&str>,
     repo_branches: Option<&str>,
     release_tag_topn: Option<u32>,
+    release_tag_pattern: Option<&str>,
+    release_tag_exclude_pattern: Option<&str>,
 ) -> Result<()> {
     let dir_base_esc = escape_single_quoted(&dir_base.to_string_lossy());
     let host_id_esc = escape_single_quoted(host_id);
-    let extra = build_check_push_extra_env(repo_whitelist, repo_branches, release_tag_topn);
+    let extra = build_check_push_extra_env(
+        repo_whitelist,
+        repo_branches,
+        release_tag_topn,
+        release_tag_pattern,
+        release_tag_exclude_pattern,
+    );
 
     // Export env vars then run script via stdin; script expects --once for one-shot.
     let command = format!(
@@ -158,7 +175,7 @@ mod tests {
 
     #[test]
     fn build_check_push_extra_env_includes_release_tag_topn() {
-        let extra = build_check_push_extra_env(None, None, Some(5));
+        let extra = build_check_push_extra_env(None, None, Some(5), None, None);
         assert!(
             extra.contains("RELEASE_TAG_TOPN=5"),
             "extra env should include RELEASE_TAG_TOPN=5, got: {:?}",
@@ -168,10 +185,31 @@ mod tests {
 
     #[test]
     fn build_check_push_extra_env_omit_release_tag_topn_when_none() {
-        let extra = build_check_push_extra_env(None, None, None);
+        let extra = build_check_push_extra_env(None, None, None, None, None);
         assert!(
             !extra.contains("RELEASE_TAG_TOPN"),
             "extra env should not include RELEASE_TAG_TOPN when None, got: {:?}",
+            extra
+        );
+    }
+
+    #[test]
+    fn build_check_push_extra_env_includes_release_tag_patterns() {
+        let extra = build_check_push_extra_env(
+            None,
+            None,
+            None,
+            Some("^v[0-9]+\\.0$"),
+            Some("^v0\\."),
+        );
+        assert!(
+            extra.contains("RELEASE_TAG_PATTERN="),
+            "extra env should include RELEASE_TAG_PATTERN, got: {:?}",
+            extra
+        );
+        assert!(
+            extra.contains("RELEASE_TAG_EXCLUDE_PATTERN="),
+            "extra env should include RELEASE_TAG_EXCLUDE_PATTERN, got: {:?}",
             extra
         );
     }

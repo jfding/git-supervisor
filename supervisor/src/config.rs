@@ -63,6 +63,12 @@ pub struct Host {
     /// Per-host: number of release tags to consider (top-N). Passed to remote script as RELEASE_TAG_TOPN.
     #[serde(default)]
     pub release_count: Option<u32>,
+    /// Per-host: ERE pattern for release tags. Passed to remote as RELEASE_TAG_PATTERN (script default: ^v[0-9Q.]+$).
+    #[serde(default)]
+    pub release_tag_pattern: Option<String>,
+    /// Per-host: ERE pattern to exclude from release tags. Passed to remote as RELEASE_TAG_EXCLUDE_PATTERN.
+    #[serde(default)]
+    pub release_tag_exclude_pattern: Option<String>,
 }
 
 /// Repo definition (git_url only). Key in `repos` map is the repo name. Branches are set per host/repo.
@@ -332,5 +338,28 @@ hosts:
         let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.hosts.get("with-count").unwrap().release_count, Some(10));
         assert_eq!(config.hosts.get("without-count").unwrap().release_count, None);
+    }
+
+    #[test]
+    fn host_release_tag_patterns_parsed() {
+        let yaml = r#"
+repos: {}
+hosts:
+  with-patterns:
+    ssh_target: u@h
+    repos: []
+    release_tag_pattern: "^v[0-9]+\\.0$"
+    release_tag_exclude_pattern: "^v0\\."
+  without-patterns:
+    ssh_target: u@h2
+    repos: []
+"#;
+        let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
+        let with_p = config.hosts.get("with-patterns").unwrap();
+        assert_eq!(with_p.release_tag_pattern.as_deref(), Some("^v[0-9]+\\.0$"));
+        assert_eq!(with_p.release_tag_exclude_pattern.as_deref(), Some("^v0\\."));
+        let without_p = config.hosts.get("without-patterns").unwrap();
+        assert_eq!(without_p.release_tag_pattern, None);
+        assert_eq!(without_p.release_tag_exclude_pattern, None);
     }
 }
