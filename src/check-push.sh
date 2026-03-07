@@ -5,8 +5,8 @@ set -u
 set -o pipefail
 
 ## global config settings
-# verbose logging or not
-: "${VERB:=1}"
+# logging level, default 2=verbose
+: "${LOGLEVEL:=2}"
 # timeout SEC for long running ops
 : "${TIMEOUT:=600}"
 # timer loop time in SEC
@@ -59,7 +59,7 @@ function _logging {
     local _level=$1; shift
     local _color=${1:-}; shift
     local _prefix=$(/bin/date '+%m-%d %H:%M:%S>')
-    if [ $_level -le $VERB ]; then
+    if [ $_level -le $LOGLEVEL ]; then
       local _message="$*"
       local _line
       [[ -n ${HOST_ID:-} ]] && _prefix="${_prefix} {${HOST_ID}}"
@@ -77,7 +77,7 @@ function _logging {
     fi
 }
 function highlight {
-    _logging 1 green "$@"
+    _logging 0 green "$@"
 }
 function info {
     _logging 1 "" "$@"
@@ -596,9 +596,6 @@ DIR_COPIES=${DIR_BASE}/copies
 
 # 3. init repo dir
 [[ -d $DIR_REPOS ]] || mkdir -p $DIR_REPOS
-
-# if VERB=0, keep super silent
-[[ $VERB = 0 ]] && exec >/dev/null 2>&1
 
 if [[ "${1:-}" == "--once" ]]; then
   main_loop once
