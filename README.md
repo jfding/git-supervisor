@@ -2,12 +2,17 @@
 
 ## Scripts
 
-- src/gh-webhook: hook service to listen for github.com callbacks. Once triggered, will run
-  check-push.sh shell script to have one-shot check.
 - `src/check-push.sh`: **main** logic of the engine, can be called by web hook or by timer loop
 - `src/prod2latest.sh`: shell script to be run in **HOST** env, to figure out the latest version
   release code copy and update the latest symlinks.
 - `src/cleanup-archives.sh`: shell script to clean up archive files under *<work>/copies/.archives/*
+
+## Sub-project
+
+- gh-webhook: hook service to listen for github.com callbacks. Once triggered, will run
+  check-push.sh shell script to have one-shot check.
+- check-push-rs: Re-implimentation of check-push.sh in Rust
+- supervisor: central supervisor for to control all remote hosts and repos
 
 ## Usage
 

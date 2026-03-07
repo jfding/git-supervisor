@@ -49,6 +49,33 @@ echo ""
 bash "$CHECK_PUSH_SCRIPT" --once
 
 echo ""
+echo "=== Verifying release tag ordering ==="
+_expected_latest="v2026Q1.0.0"
+for _repo in webapp api-service mobile-app; do
+  _latest_link="$DIR_BASE/copies/${_repo}.prod.latest"
+  _latest_target=$(readlink "$_latest_link" 2>/dev/null || true)
+
+  if [[ "$_latest_target" != "${_repo}.prod.${_expected_latest}" ]]; then
+    echo "Error: ${_repo}.prod.latest points to '${_latest_target}', expected '${_repo}.prod.${_expected_latest}'"
+    exit 1
+  fi
+
+  for _tag in v2025Q12.1.0 v2025Q4.2.0 v10.0; do
+    if [[ ! -d "$DIR_BASE/copies/${_repo}.prod.${_tag}" ]]; then
+      echo "Error: missing expected release copy for ${_repo}.prod.${_tag}"
+      exit 1
+    fi
+  done
+
+  if [[ -d "$DIR_BASE/copies/${_repo}.prod.v2.1" ]]; then
+    echo "Error: ${_repo}.prod.v2.1 should not exist because RELEASE_TAG_TOPN keeps only the top 4 releases"
+    exit 1
+  fi
+
+  echo "  OK: $_repo release tags sorted correctly, latest=${_expected_latest}"
+done
+
+echo ""
 echo "=== Verifying BR_WHITELIST / .skipping behavior ==="
 # Whitelisted branches should have copy dir with content and no .skipping when just inited
 _found_whitelisted_ok=0

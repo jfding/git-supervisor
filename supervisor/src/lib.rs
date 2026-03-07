@@ -9,7 +9,7 @@ pub mod ssh;
 pub use config::{CentralConfig, Defaults, Host, Repo};
 
 /// Embedded check-push.sh script (from repo src/check-push.sh), run on remote with sandbox env.
-const CHECK_PUSH_SCRIPT: &str = include_str!("../../../src/check-push.sh");
+const CHECK_PUSH_SCRIPT: &str = include_str!("../../src/check-push.sh");
 
 fn escape_single_quoted(s: &str) -> String {
     s.replace('\'', "'\\''")
@@ -166,15 +166,20 @@ pub fn run_watch(
                 let host_id = host_id.clone();
                 let dir_base = config.dir_base_for_host(&host_id).clone();
                 let (repo_whitelist, br_whitelist_per_host) = whitelists_from_config(config, &host_id);
-
+                let check_push_env = ops::CheckPushEnv {
+                    repo_whitelist,
+                    repo_branches: br_whitelist_per_host,
+                    release_tag_topn: host.release_count,
+                    release_tag_pattern: host.release_tag_pattern.clone(),
+                    release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
+                };
                 s.spawn(move || {
                     if let Err(e) = ops::run_check_push_remote(
                         host,
                         &host_id,
                         &dir_base,
                         CHECK_PUSH_SCRIPT,
-                        repo_whitelist.as_deref(),
-                        br_whitelist_per_host.as_deref(),
+                        &check_push_env,
                     ) {
                         eprintln!("Error: {}: {}", host_id, e);
                     }

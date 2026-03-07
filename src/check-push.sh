@@ -17,31 +17,18 @@ set -o pipefail
 # whitelist of repos to checkout
 : "${BR_WHITELIST:=main master dev test alpha}"
 # whitelist of repos to check (empty = scan all repos in work dir)
-: "${BR_WHITELIST_PER_REPO:=}"
+: "${REPO_WHITELIST:=}"
+
+# release tag pattern (ERE): only tags matching this are deployed as releases
+# default: v plus one or more of 0-9, Q, or dot (e.g. v1.0, v1.2.Q3, v2025Q4.2.0)
+: "${RELEASE_TAG_PATTERN:=^v[0-9Q.]+$}"
+# optional exclude pattern (ERE): tags matching this are skipped (e.g. pre-releases)
+# default empty = no exclusion. Example: -alpha|-beta|-rc|-SNAPSHOT
+: "${RELEASE_TAG_EXCLUDE_PATTERN:=}"
+# Need only handle top-N releases only (0 means all, default is 4)
+: "${RELEASE_TAG_TOPN:=4}"
 
 BASHPID=$(echo $$ | tr -d '\n')
-
-function _version_less_than {
-  if [[ -z $1 ]] || [[ -z $2 ]]; then
-    return 100
-  fi
-  if [[ $1 == $2 ]]; then
-    return 2
-  fi
-
-  python3 -c "
-import sys
-v1, v2 = sys.argv[1].lstrip('v'), sys.argv[2].lstrip('v')
-n1 = [[int(y) for y in x.split('Q')] for x in v1.split('.')]
-n1 = [item for sublist in n1 for item in sublist]
-n2 = [[int(y) for y in x.split('Q')] for x in v2.split('.')]
-n2 = [item for sublist in n2 for item in sublist]
-max_len = max(len(n1), len(n2))
-n1.extend([0] * (max_len - len(n1)))
-n2.extend([0] * (max_len - len(n2)))
-sys.exit(0 if n1 < n2 else (1 if n1 > n2 else 2))
-" $1 $2
-}
 
 function _logging {
     local _level=$1; shift
@@ -66,15 +53,91 @@ function err {
   mustsay "ERROR: $@"
 }
 
+# Sort version-like tags in descending order
+# Tag components are split on '.' and 'Q'; empty segments are treated as 0.
+function sort_version_tags_desc {
+  awk '
+    function parse(tag, idx,    s, len, i, ch, buf) {
+      s = tag
+      sub(/^v/, "", s)
+      len = 0
+      buf = ""
+
+      for (i = 1; i <= length(s); i++) {
+        ch = substr(s, i, 1)
+        if (ch == "." || ch == "Q") {
+          if (buf == "") {
+            buf = "0"
+          }
+          nums[idx, ++len] = buf + 0
+          buf = ""
+        } else {
+          buf = buf ch
+        }
+      }
+
+      if (buf == "") {
+        buf = "0"
+      }
+      nums[idx, ++len] = buf + 0
+      parts_len[idx] = len
+
+      if (len > max_len) {
+        max_len = len
+      }
+    }
+
+    NF {
+      tags[++count] = $0
+      parse($0, count)
+    }
+
+    END {
+      for (i = 1; i <= count; i++) {
+        key = ""
+        for (j = 1; j <= max_len; j++) {
+          val = ((i SUBSEP j) in nums) ? nums[i, j] : 0
+          key = key sprintf("%020d", val)
+        }
+        printf "%s\t%s\n", key, tags[i]
+      }
+    }
+  ' | sort -r | cut -f2-
+}
+
+# Print release tags for current repo (must be in repo dir).
+# Uses RELEASE_TAG_PATTERN (ERE) and optionally filters out RELEASE_TAG_EXCLUDE_PATTERN.
+# optional arg: top-N releases only (default to use global RELEASE_TAG_TOPN)
+function get_release_tags {
+  local _tags
+  local _topn=${1:-$RELEASE_TAG_TOPN}
+
+  _tags=$(git tag -l | grep -E -- "${RELEASE_TAG_PATTERN}" || true)
+  [[ -n "${RELEASE_TAG_EXCLUDE_PATTERN:-}" ]] && \
+    _tags=$(echo "${_tags}" | grep -v -E -- "${RELEASE_TAG_EXCLUDE_PATTERN}" || true)
+
+  [[ -z "${_tags}" ]] && return
+
+  # (reverse)sort tags by version number
+  _tags=$(printf '%s\n' "${_tags}" | grep -v '^[[:space:]]*$' | sort_version_tags_desc)
+
+  # get topN only
+  [[ $_topn -gt 0 ]] && _tags=$(echo "${_tags}" | head -n $_topn)
+
+  echo "${_tags}"
+}
+
 # Return space-separated branch list for the given repo.
 # Uses BR_WHITELIST_PER_REPO if set (format: "repo1 br1 br2|repo2 br3"),
 # else BR_WHITELIST.
 function get_branches_for_repo {
   local _repo_name=$1
+
   if [[ -z "${BR_WHITELIST_PER_REPO:-}" ]]; then
     echo "$BR_WHITELIST"
     return
   fi
+
   local _segment
   while IFS= read -r _segment; do
     if [[ $_segment == $_repo_name\ * ]] || [[ $_segment == "$_repo_name" ]]; then
@@ -155,45 +218,31 @@ function _handle_docker {
     fi
 }
 
+# extract ref (tag or branch) to dest dir
+function _git_checkout_ref_to {
+  local _ref=$1
+  local _dest=$2
+  git archive "$_ref" | tar -x -C "$_dest"
+}
+
 # expect one argument "tag_name"
 function checkout_and_copy_tag {
   local _repo=$1
   local _tag=$2
 
   local _cp_path="${DIR_COPIES}/${_repo}.prod.${_tag}"
-  local _arch_path="${DIR_COPIES}/.archives/${_repo}.prod.${_tag}"
-  local _post_path="${DIR_COPIES}/${_repo}.prod.post"
-  local _docker_path="${DIR_COPIES}/${_repo}.prod.docker"
-  local _latest_path="${DIR_COPIES}/${_repo}.prod.latest"
 
-  # if path exists, skip
+  # if path exists, skip but consider successful
   [[ -d $_cp_path ]] && return
 
-  # if path exists with dot prefix, skip
-  [[ -d $_arch_path ]] && return
-  
   # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
-  mkdir -p $_cp_path && \
-    git archive $_tag | tar -x -C $_cp_path && \
-    say "..copy files for new RELEASE [ $_tag ]"
-
-  if [[ -L $_latest_path ]]; then
-    local _cur_latest_path=$(readlink $_latest_path)
-    local _cur_latest_tag=$(basename $_cur_latest_path | sed 's/.*\.prod\.//')
-
-    if _version_less_than $_cur_latest_tag $_tag; then
-      rm -f $_latest_path
-      ln -sf $(basename $_cp_path) $_latest_path
-    fi
-  else
-    ln -sf $(basename $_cp_path) $_latest_path
-  fi
-
-  # post scripts
-  _handle_post ${_post_path} ${_cp_path}
-
-  # restart docker instance
-  _handle_docker ${_docker_path}
+  say "..copying files for new RELEASE [ $_tag ]"
+  mkdir -p $_cp_path &&
+    _git_checkout_ref_to $_tag $_cp_path || {
+      rm -rf $_cp_path
+      err "failed to copy files for new RELEASE [ $_tag ]"
+      return 1
+    }
 }
 
 # expect repo, branch, and optional per-repo branch list (default BR_WHITELIST)
@@ -237,9 +286,12 @@ function checkout_and_copy_br {
 
   # initial copy when dir is empty
   if [[ -z $(/bin/ls -A $_cp_path 2>/dev/null) ]]; then
-    git archive origin/$_br | tar -x -C $_cp_path && \
-      echo -n "$_origin_ref" > "${_cp_path}/.git-rev" && \
-      say "..copy files for [ $_br ]"
+    say "..copying files for [ $_br ]"
+    _git_checkout_ref_to origin/$_br $_cp_path || {
+      err "failed to copy files for [ $_br ]"
+      return 1
+    }
+    echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
   fi
 
   local _stored_ref
@@ -269,12 +321,20 @@ function checkout_and_copy_br {
     say "..UPDATING branch [ $_br ]"
     if [[ -f "${_cp_path}/.no-cleanup" ]]; then
       # overwrite only, do not remove extra files
-      git archive origin/$_br | tar -x -C $_cp_path
+      _git_checkout_ref_to origin/$_br $_cp_path || {
+        err "failed to copy files for [ $_br ]"
+        return 1
+      }
     else
       # full refresh: extract to new dir, preserve flags, then mv into place
       local _staging="${_cp_path}.staging.$$"
       mkdir -p "$_staging"
-      git archive origin/$_br | tar -x -C "$_staging"
+      _git_checkout_ref_to origin/$_br "$_staging" || {
+        rm -rf $_staging
+        err "failed to copy files for [ $_br ]"
+        return 1
+      }
+
       for _f in .no-cleanup .living .skipping .debugging; do
         [[ -e "${_cp_path}/${_f}" ]] && cp -p "${_cp_path}/${_f}" "${_staging}/"
       done
@@ -306,27 +366,55 @@ function fetch_and_check {
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
 
   say "..fetching repo, for branches [$_br_whitelist]..."
-  _timeout git fetch -q --all --tags --prune || {
+  _timeout git fetch -q --all --tags --prune --prune-tags || {
     err "failed to fetch repo $_repo, skip"
     return 1
   }
 
-  #for _br in `ls .git/refs/remotes/origin/`; do
-  for _br in $(git branch -r | grep -v HEAD | sed -e 's/.*origin\///'); do
+  ## iterate each branch
+
+  # get list via git for-each-ref, remove 'origin/' prefix, skip HEAD and symbolic refs
+  for _br in $(git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin); do
+    # filters
     [[ $_br = 'HEAD' ]] && continue
     (echo "$_br" | grep -q '/') && continue
 
     # check branch whitelist || repo dir exists already
-    if [[ $_br_whitelist =~ (^|[[:space:]])$_br($|[[:space:]]) ]] || [[ -d "${DIR_COPIES}/${_repo}.${_br}" ]]; then
-        checkout_and_copy_br $_repo $_br "$_br_whitelist"
+    if [[ $_br_whitelist =~ (^|[[:space:]])$_br($|[[:space:]]) ]] || \
+       [[ -d "${DIR_COPIES}/${_repo}.${_br}" ]]; then
+
+        checkout_and_copy_br $_repo $_br "$_br_whitelist" || continue
 
         # heart beat
         touch "${DIR_COPIES}/${_repo}.${_br}/.living"
     fi
   done
 
-  for _release in $(git tag -l | grep '^v[Q0-9.]\+$'); do
-    checkout_and_copy_tag $_repo $_release
+  ## iterate each release tag
+
+  local _releases=$(get_release_tags)
+  local _latest_release=$(echo $_releases | cut -d' ' -f1)
+
+  for _release in $_releases; do
+    [[ -z "$_release" ]] && continue
+    checkout_and_copy_tag $_repo $_release || continue
+
+    # update latest version path symlink
+    if [[ $_release == $_latest_release ]]; then
+      local _latest_link="${DIR_COPIES}/${_repo}.prod.latest"
+      local _latest_path=$(readlink $_latest_link || echo "")
+      local _cur_release_path="${DIR_COPIES}/${_repo}.prod.${_release}"
+
+      [[ $_latest_path != $_cur_release_path ]] && {
+        rm -f $_latest_link
+        ln -sf $(basename $_cur_release_path) $_latest_link
+      }
+
+      # post scripts
+      _handle_post "${DIR_COPIES}/${_repo}.prod.post" ${_cur_release_path}
+      # restart docker instance
+      _handle_docker "${DIR_COPIES}/${_repo}.prod.docker"
+    fi
 
     # heart beat
     if [[ -d "${DIR_COPIES}/${_repo}.prod.${_release}" ]]; then
@@ -368,7 +456,7 @@ function main_loop {
   local _repo
   local _worker_pid
   local _worker_failed=0
-  
+
   cd $DIR_REPOS || {
     err "failed to cd to DIR_REPOS: $DIR_REPOS, critical issue, abort"
     exit 1

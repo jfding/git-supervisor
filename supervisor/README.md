@@ -9,7 +9,7 @@ See the [design doc](../../docs/plans/2025-02-22-central-supervisor-design.md) f
 - **Top level:** `defaults` (optional), `repos` (optional), `hosts` (required).
 - **Defaults:** `dir_base`, `branches` (optional; used when a host repo entry doesn't set branches).
 - **Repos:** map of repo name → definition (`git_url` only). Hosts reference these by name. Branches are not set here.
-- **Per host:** `ssh_target` (e.g. `user@host`), optional `ssh_port`, `ssh_identity_file`, `dir_base`; `repos`: list of repo names or `{ name, branches? }` entries. Branches are configured only here (per host, per repo).
+- **Per host:** `ssh_target` (e.g. `user@host`), optional `ssh_port`, `ssh_identity_file`, `dir_base`, optional `release_count`, optional `release_tag_pattern`, optional `release_tag_exclude_pattern`; `repos`: list of repo names or `{ name, branches? }` entries. Branches are configured only here (per host, per repo). When set, `release_count` is passed as env `RELEASE_TAG_TOPN` (script default 4). When set, `release_tag_pattern` and `release_tag_exclude_pattern` are passed as `RELEASE_TAG_PATTERN` and `RELEASE_TAG_EXCLUDE_PATTERN` (ERE; script default pattern: `^v[0-9Q.]+$`).
 
 Example:
 
@@ -28,6 +28,9 @@ hosts:
   app-server:
     ssh_target: deploy@app-server.example.com
     ssh_identity_file: ~/.ssh/deploy_key
+    release_count: 8    # optional, default 4
+    release_tag_pattern: "^v[0-9]+\\.0$"      # optional; passed as RELEASE_TAG_PATTERN
+    release_tag_exclude_pattern: "^v0\\."     # optional; passed as RELEASE_TAG_EXCLUDE_PATTERN
     repos:
       - webapp
       - name: api
