@@ -53,6 +53,58 @@ function err {
   mustsay "ERROR: $@"
 }
 
+# Sort version-like tags in descending order
+# Tag components are split on '.' and 'Q'; empty segments are treated as 0.
+function sort_version_tags_desc {
+  awk '
+    function parse(tag, idx,    s, len, i, ch, buf) {
+      s = tag
+      sub(/^v/, "", s)
+      len = 0
+      buf = ""
+
+      for (i = 1; i <= length(s); i++) {
+        ch = substr(s, i, 1)
+        if (ch == "." || ch == "Q") {
+          if (buf == "") {
+            buf = "0"
+          }
+          nums[idx, ++len] = buf + 0
+          buf = ""
+        } else {
+          buf = buf ch
+        }
+      }
+
+      if (buf == "") {
+        buf = "0"
+      }
+      nums[idx, ++len] = buf + 0
+      parts_len[idx] = len
+
+      if (len > max_len) {
+        max_len = len
+      }
+    }
+
+    NF {
+      tags[++count] = $0
+      parse($0, count)
+    }
+
+    END {
+      for (i = 1; i <= count; i++) {
+        key = ""
+        for (j = 1; j <= max_len; j++) {
+          val = ((i SUBSEP j) in nums) ? nums[i, j] : 0
+          key = key sprintf("%020d", val)
+        }
+        printf "%s\t%s\n", key, tags[i]
+      }
+    }
+  ' | sort -r | cut -f2-
+}
+
 # Print release tags for current repo (must be in repo dir).
 # Uses RELEASE_TAG_PATTERN (ERE) and optionally filters out RELEASE_TAG_EXCLUDE_PATTERN.
 # optional arg: top-N releases only (default to use global RELEASE_TAG_TOPN)
@@ -67,17 +119,7 @@ function get_release_tags {
   [[ -z "${_tags}" ]] && return
 
   # (reverse)sort tags by version number
-  _tags=$(echo "${_tags}" | grep -v '^[[:space:]]*$' | python3 -c "
-import sys
-def key(tag):
-    s = tag.strip().lstrip('v')
-    parts = [[int(y) for y in x.split('Q')] for x in s.split('.')]
-    return [item for sublist in parts for item in sublist]
-lines = [l for l in sys.stdin if l.strip()]
-lines.sort(key=key, reverse=True)
-for t in lines:
-    print(t, end='')
-")
+  _tags=$(printf '%s\n' "${_tags}" | grep -v '^[[:space:]]*$' | sort_version_tags_desc)
 
   # get topN only
   [[ $_topn -gt 0 ]] && _tags=$(echo "${_tags}" | head -n $_topn)

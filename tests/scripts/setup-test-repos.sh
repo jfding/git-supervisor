@@ -14,6 +14,9 @@ FAKE_REMOTES_DIR="$DEV_DIR/fake-remotes"
 echo "Setting up test repositories in $GIT_REPOS_DIR"
 echo "Creating fake remotes in $FAKE_REMOTES_DIR"
 
+# Reset previous test state so release-tag assertions are deterministic.
+rm -rf "$GIT_REPOS_DIR" "$COPIES_DIR" "$FAKE_REMOTES_DIR"
+
 # Create directories
 mkdir -p "$GIT_REPOS_DIR"
 mkdir -p "$COPIES_DIR"
@@ -92,6 +95,14 @@ create_test_repo() {
     git tag v1.0.0
     git tag v1.1.0
     git tag v2.0.0
+    git tag v2.0.0.1
+    git tag v2.1
+    git tag v10.0
+    git tag v1.2.Q3
+    git tag v1.2.Q10
+    git tag v2025Q4.2.0
+    git tag v2025Q12.1.0
+    git tag v2026Q1.0.0
     
     # Add the fake remote
     git remote add origin "$remote_dir"
