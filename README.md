@@ -1,4 +1,4 @@
-# Auto reload scripts and web hook for Rushi App DevOps
+# Git Supervisor — monitor git repos and deploy to working environments
 
 ## Scripts
 

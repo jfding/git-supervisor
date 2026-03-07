@@ -11,7 +11,7 @@ set -o pipefail
 : "${SLEEP_TIME:=120}"
 
 # file lock, normally need NOT change
-: "${CI_LOCK:=/tmp/.auto-reloader-lock.d}"
+: "${CI_LOCK:=/tmp/.git-supervisor-lock.d}"
 # working base dir
 : "${DIR_BASE:=/work}"
 # whitelist of repos to checkout
