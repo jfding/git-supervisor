@@ -1,8 +1,9 @@
 use anyhow::Context;
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
 
 pub mod config;
+pub mod console;
 pub mod ops;
 pub mod ssh;
 
@@ -19,11 +20,18 @@ fn escape_single_quoted(s: &str) -> String {
 /// - repo_whitelist: repo names (REPO_WHITELIST), space-separated
 /// - br_whitelist_per_host: BR_WHITELIST_PER_REPO string for the script, "repo1 br1 br2|repo2 br3".
 ///   Uses default_branches when a repo has no branches specified.
-fn whitelists_from_config(config: &CentralConfig, host_id: &str) -> (Option<String>, Option<String>) {
+fn whitelists_from_config(
+    config: &CentralConfig,
+    host_id: &str,
+) -> (Option<String>, Option<String>) {
     let repos = config.repos_for_host(host_id);
     let default_branches = config.defaults.as_ref().and_then(|d| d.branches.as_deref());
 
-    let repo_whitelist: String = repos.iter().map(|r| r.name.clone()).collect::<Vec<_>>().join(" ");
+    let repo_whitelist: String = repos
+        .iter()
+        .map(|r| r.name.clone())
+        .collect::<Vec<_>>()
+        .join(" ");
     let br_whitelist_per_host = repos
         .iter()
         .filter_map(|r| {
@@ -49,10 +57,16 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
-        eprintln!("Check host {{ {} }} -->", host_id);
+        eprintln!(
+            "{}",
+            console::highlight(format!("Check host {{ {} }} -->", host_id))
+        );
 
         if let Err(e) = ops::check_git_available(host).context("check git/ssh available") {
-            eprintln!("Error {{ {} }}: {}", host_id, e);
+            eprintln!(
+                "{}",
+                console::error(format!("Error {{ {} }}: {}", host_id, e))
+            );
             failures.push(format!("{{ {} }}: {}", host_id, e));
             continue;
         }
@@ -63,22 +77,29 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
             let repo_dir = dir_repos.join(&repo.name);
             let repo_dir_str = repo_dir.to_string_lossy();
             let repo_dir_esc = format!("'{}'", escape_single_quoted(&repo_dir_str));
+            let ok_line = console::shell_printf(
+                &format!("OK repo [{}] at {}", repo.name, repo_dir_str),
+                Some(console::Color::Green),
+            );
+            let missing_line = console::shell_printf(
+                &format!("MISSING repo [{}] at {}", repo.name, repo_dir_str),
+                Some(console::Color::Yellow),
+            );
 
             let command = format!(
                 "if [ -d {}/.git ]; then \
-  echo 'OK repo [{}] at {}'; \
+  {}; \
 else \
-  echo 'MISSING repo [{}] at {}'; \
+  {}; \
 fi",
-                repo_dir_esc,
-                repo.name,
-                repo_dir_str,
-                repo.name,
-                repo_dir_str,
+                repo_dir_esc, ok_line, missing_line,
             );
 
             if let Err(e) = crate::ssh::ssh_run(host, &command) {
-                eprintln!("Error {{ {} }}: {}", host_id, e);
+                eprintln!(
+                    "{}",
+                    console::error(format!("Error {{ {} }}: {}", host_id, e))
+                );
                 failures.push(format!("{{ {} }}: {}", host_id, e));
             }
         }
@@ -87,7 +108,11 @@ fi",
     if failures.is_empty() {
         Ok(())
     } else {
-        anyhow::bail!("{} host/repo failure(s):\n{}", failures.len(), failures.join("\n"))
+        anyhow::bail!(
+            "{} host/repo failure(s):\n{}",
+            failures.len(),
+            failures.join("\n")
+        )
     }
 }
 
@@ -97,44 +122,59 @@ fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyho
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
-        eprintln!("Prepare host {{ {} }} -->", host_id);
+        eprintln!(
+            "{}",
+            console::info(format!("Prepare host {{ {} }} -->", host_id))
+        );
 
         let dir_repos = config.dir_repos_for_host(host_id);
         let dir_copies = config.dir_copies_for_host(host_id);
 
-        if let Err(e) = ops::check_git_available(host)
-            .context("check git available")
-        {
-            eprintln!("Error {{ {} }}: {}", host_id, e);
+        if let Err(e) = ops::check_git_available(host).context("check git available") {
+            eprintln!(
+                "{}",
+                console::error(format!("Error {{ {} }}: {}", host_id, e))
+            );
             failures.push(format!("{{ {} }}: {}", host_id, e));
             continue;
         }
 
         if let Err(e) = ops::check_docker_available(host) {
-            eprintln!("Warning {{ {} }}: {} (optional)", host_id, e);
+            eprintln!(
+                "{}",
+                console::warning(format!("Warning {{ {} }}: {} (optional)", host_id, e))
+            );
         }
 
-        if let Err(e) = ops::create_dirs(host, &dir_repos, &dir_copies)
-            .context("create_dirs")
-        {
-            eprintln!("Error {{ {} }}: {}", host_id, e);
+        if let Err(e) = ops::create_dirs(host, &dir_repos, &dir_copies).context("create_dirs") {
+            eprintln!(
+                "{}",
+                console::error(format!("Error {{ {} }}: {}", host_id, e))
+            );
             failures.push(format!("{{ {} }}: {}", host_id, e));
             continue;
         }
 
         for repo in config.repos_for_host(host_id) {
             if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, ignore_missing) {
-                eprintln!("Warning {{ {} }}: {} (continuing)", host_id, e);
+                eprintln!(
+                    "{}",
+                    console::error(format!("Error {{ {} }}: {} (continuing)", host_id, e))
+                );
                 failures.push(format!("{{ {} }}: {}", host_id, e));
             }
         }
     }
-    println!("Prepare DONE\n");
+    println!("{}", console::info("Prepare DONE\n"));
 
     if failures.is_empty() {
         Ok(())
     } else {
-        anyhow::bail!("{} host/repo failure(s):\n{}", failures.len(), failures.join("\n"))
+        anyhow::bail!(
+            "{} host/repo failure(s):\n{}",
+            failures.len(),
+            failures.join("\n")
+        )
     }
 }
 
@@ -159,16 +199,25 @@ pub fn run_watch(
 
     loop {
         round += 1;
-        eprintln!("watch round {} (hosts: {})", round, config.hosts.len());
+        eprintln!(
+            "{}",
+            console::info(format!(
+                "watch round {} (hosts: {})",
+                round,
+                config.hosts.len()
+            ))
+        );
 
         std::thread::scope(|s| {
             for (host_id, host) in &config.hosts {
                 let host_id = host_id.clone();
                 let dir_base = config.dir_base_for_host(&host_id).clone();
-                let (repo_whitelist, br_whitelist_per_host) = whitelists_from_config(config, &host_id);
+                let (repo_whitelist, br_whitelist_per_host) =
+                    whitelists_from_config(config, &host_id);
                 let check_push_env = ops::CheckPushEnv {
                     repo_whitelist,
                     repo_branches: br_whitelist_per_host,
+                    log_level: config.defaults.as_ref().and_then(|d| d.log_level),
                     release_tag_topn: host.release_count,
                     release_tag_pattern: host.release_tag_pattern.clone(),
                     release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
@@ -181,14 +230,14 @@ pub fn run_watch(
                         CHECK_PUSH_SCRIPT,
                         &check_push_env,
                     ) {
-                        eprintln!("Error: {}: {}", host_id, e);
+                        eprintln!("{}", console::error(format!("Error: {}: {}", host_id, e)));
                     }
                 });
             }
         });
 
         if interval_secs == 0 {
-            eprintln!("interval is 0, run once and quit");
+            eprintln!("{}", console::info("interval is 0, run once and quit"));
             break;
         }
 
@@ -196,7 +245,7 @@ pub fn run_watch(
             Some(d) => {
                 let remaining = d.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
-                    eprintln!("watch timeout reached, stopping");
+                    eprintln!("{}", console::info("watch timeout reached, stopping"));
                     break;
                 }
                 remaining.min(interval)

@@ -5,8 +5,8 @@ set -u
 set -o pipefail
 
 ## global config settings
-# verbose logging or not
-: "${VERB:=1}"
+# logging level, default 2=verbose
+: "${LOGLEVEL:=2}"
 # timeout SEC for long running ops
 : "${TIMEOUT:=600}"
 # timer loop time in SEC
@@ -32,27 +32,67 @@ set -o pipefail
 
 BASHPID=$(echo $$ | tr -d '\n')
 
+function _color_enabled {
+    [[ -n "${NO_COLOR:-}" ]] && return 1
+    [[ -n "${FORCE_COLOR:-}" ]] && [[ "${FORCE_COLOR}" != "0" ]] && return 0
+    [[ -t 1 ]] || [[ -t 2 ]]
+}
+
+function _color_wrap {
+    local _color=$1
+    local _text=$2
+    local _code=
+
+    case "${_color}" in
+      red) _code='31' ;;
+      yellow) _code='33' ;;
+      green) _code='32' ;;
+      blue) _code='34' ;;
+      grey) _code='90' ;;
+      *) printf '%s' "${_text}"; return ;;
+    esac
+
+    printf '\033[%sm%s\033[0m' "${_code}" "${_text}"
+}
+
 function _logging {
     local _level=$1; shift
+    local _color=${1:-}; shift
     local _prefix=$(/bin/date '+%m-%d %H:%M:%S>')
-    if [ $_level -le $VERB ]; then
+    if [ $_level -le $LOGLEVEL ]; then
+      local _message="$*"
+      local _line
       [[ -n ${HOST_ID:-} ]] && _prefix="${_prefix} {${HOST_ID}}"
       [[ -n "${LOG_PREFIX:-}" ]] && _prefix="${_prefix} ${LOG_PREFIX}"
+      _line="${_prefix} ${_message}"
 
-      echo $_prefix "$@"
+      if _color_enabled && [[ -n "${_color}" ]]; then
+        _line=$(_color_wrap "${_color}" "${_line}")
+      fi
+      if _color_enabled; then
+        printf '%b\n' "${_line}"
+      else
+        printf '%s\n' "${_line}"
+      fi
     fi
 }
-function mustsay {
-    _logging 0 "$@"
+function highlight {
+    _logging 0 green "$@"
 }
-function say {
-    _logging 1 "$@"
+function info {
+    _logging 1 "" "$@"
 }
 function verbose {
-    _logging 2 "$@"
+    _logging 2 "grey" "$@"
+}
+function debug {
+    _logging 2 "blue" "$@"
 }
 function err {
-  mustsay "ERROR: $@"
+  _logging 0 red "ERROR: $*"
+}
+function warn {
+  _logging 0 yellow "WARN: $*"
 }
 
 # Sort version-like tags in descending order
@@ -194,7 +234,7 @@ function _handle_post {
     local _cp_path=$2
 
     if [[ -f "${_post_path}" ]]; then
-      say "..running post scripts [ $_post_path ]"
+      highlight "..running post scripts [ $_post_path ]"
       cd "${_cp_path}"
       bash "${_post_path}"
       cd - > /dev/null
@@ -206,14 +246,14 @@ function _handle_docker {
     local _docker_path=$1
 
     command -v docker >/dev/null || {
-      say "WARN: docker cli not found, skip docker restart"
+      warn "docker cli not found, skip docker restart"
       return
     }
 
     if [[ -f "${_docker_path}" ]]; then
       local _docker_name=$(cat "${_docker_path}")
 
-      say "..restarting docker [ $_docker_name ]"
+      highlight "..restarting docker [ $_docker_name ]"
       _timeout docker restart "${_docker_name}" > /dev/null || \
           err "failed to restart docker [ $_docker_name ]"
       unset _docker_name
@@ -238,7 +278,7 @@ function checkout_and_copy_tag {
   [[ -d $_cp_path ]] && return
 
   # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
-  say "..copying files for new RELEASE [ $_tag ]"
+  highlight "..copying files for new RELEASE [ $_tag ]"
   mkdir -p $_cp_path &&
     _git_checkout_ref_to $_tag $_cp_path || {
       rm -rf $_cp_path
@@ -262,16 +302,16 @@ function checkout_and_copy_br {
   if [[ ! -d $_cp_path ]]; then
     mkdir -p "$_cp_path"
     if [[ $_br_list =~ (^|[[:space:]])$_br($|[[:space:]]) ]]; then
-      say "..init dir of [ $_br ] (whitelisted, copying files)"
+      highlight "..init dir of [ $_br ] (whitelisted, copying files)"
     else
       touch "$_cp_path/.skipping"
-      say "..init dir of [ $_br ]"
+      highlight "..init (empty)dir for [ $_br ]"
     fi
   fi
 
   # checking flags
   if [[ -f "${_cp_path}/.debugging" ]]; then
-    verbose "..skip debugging work copy of branch [ $_br ]"
+    debug "..skip debugging work copy of branch [ $_br ]"
     return
   fi
   if [[ -f "${_cp_path}/.skipping" ]]; then
@@ -282,13 +322,13 @@ function checkout_and_copy_br {
   # current commit at origin (no checkout in repo, ref unchanged)
   local _origin_ref
   _origin_ref=$(git rev-parse origin/$_br 2>/dev/null) || {
-    mustsay "..no origin/$_br, skip"
+    warn "..no origin/$_br, skip"
     return
   }
 
   # initial copy when dir is empty
   if [[ -z $(/bin/ls -A $_cp_path 2>/dev/null) ]]; then
-    say "..copying files for [ $_br ]"
+    highlight "..copying files for [ $_br ]"
     _git_checkout_ref_to origin/$_br $_cp_path || {
       err "failed to copy files for [ $_br ]"
       return 1
@@ -303,7 +343,7 @@ function checkout_and_copy_br {
   # add a debug trigger
   if [[ -f "${_cp_path}/.trigger" ]]; then
     rm -f "${_cp_path}/.trigger" # burn after reading
-    say "..having a debug try"
+    debug "..having a debug try"
     _need_update=1
   fi
 
@@ -320,7 +360,7 @@ function checkout_and_copy_br {
 
   # only refresh when copy dir already has content (initial copy is handled above)
   if [[ $_need_update -eq 1 ]] && [[ -n $(/bin/ls -A $_cp_path 2>/dev/null) ]]; then
-    say "..UPDATING branch [ $_br ]"
+    highlight "..UPDATING branch [ $_br ]"
     if [[ -f "${_cp_path}/.no-cleanup" ]]; then
       # overwrite only, do not remove extra files
       _git_checkout_ref_to origin/$_br $_cp_path || {
@@ -367,7 +407,7 @@ function fetch_and_check {
   # clean up trash file from last time crash
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
 
-  say "..fetching repo, for branches [$_br_whitelist]..."
+  info "..fetching repo, for branches [$_br_whitelist]..."
   _timeout git fetch -q --all --tags --prune --prune-tags || {
     err "failed to fetch repo $_repo, skip"
     return 1
@@ -444,7 +484,7 @@ function fetch_and_check {
       if [ -f "${_bp}/.living" ]; then
         rm -f "${_bp}/.living"
       else
-        say "..cleaning up deprecated dir: ${_bp}"
+        debug "..cleaning up deprecated dir: ${_bp}"
         #rm -rf $_bp
         #rm -f ${_bp}.*
         mv "$_bp" "${_bp}.to-be-removed"
@@ -478,9 +518,9 @@ function main_loop {
             echo "$_repo"
           else
             if [[ -d "${_repo}" ]]; then
-              mustsay "WARN: [${_repo}] not a git repo, skip" >&2
+              warn "[${_repo}] not a git repo, skip"
             else
-              mustsay "WARN: [${_repo}] not found in $DIR_REPOS, skip" >&2
+              warn "[${_repo}] not found in $DIR_REPOS, skip"
             fi
           fi
         done
@@ -493,7 +533,7 @@ function main_loop {
     )
 
     for _repo in $REPOS_TO_CHECK; do
-      mustsay "[${_repo}] checking git status ..."
+      info "[${_repo}] checking git status ..."
       ( LOG_PREFIX="[${_repo}]"; fetch_and_check "${_repo}" ) &
     done
 
@@ -513,7 +553,7 @@ function main_loop {
     # if SLEEP_TIME value is empty or value is 0, means run once and exit
     [[ $SLEEP_TIME == "" ]] || [[ $SLEEP_TIME == "0" ]] && exit 0
 
-    say "waiting for next check ..."
+    info "waiting for next check ..."
     sleep $SLEEP_TIME
   done
 }
@@ -537,7 +577,7 @@ for c in git tar; do
   command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
 done
 # check for optional 'docker' support
-command -v docker >/dev/null || say "docker cli not found, will skip docker restart handling"
+command -v docker >/dev/null || warn "docker cli not found, will skip docker restart handling"
 
 ## check and init all working dirs
 # 1. check the DIR_BASE is available (sanitize&check at the time)
@@ -556,9 +596,6 @@ DIR_COPIES=${DIR_BASE}/copies
 
 # 3. init repo dir
 [[ -d $DIR_REPOS ]] || mkdir -p $DIR_REPOS
-
-# if VERB=0, keep super silent
-[[ $VERB = 0 ]] && exec >/dev/null 2>&1
 
 if [[ "${1:-}" == "--once" ]]; then
   main_loop once
