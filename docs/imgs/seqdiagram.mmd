@@ -1,0 +1,54 @@
+sequenceDiagram
+    participant Main as main()
+    participant RepoLoop as for each repo
+    participant Fetch as fetch_and_check()
+    participant Branch as checkout_and_copy_br()
+    participant Tag as checkout_and_copy_tag()
+    participant Post as _handle_post()
+    participant Docker as _handle_docker()
+
+    Main->>RepoLoop: Iterate repos (REPO_WHITELIST or all git dirs in $DIR_REPOS)
+    RepoLoop->>Fetch: fetch_and_check(repo)
+
+    Fetch->>Fetch: Remove .git/index.lock
+    Fetch->>Fetch: git fetch -q --all --tags --prune --prune-tags
+
+    loop For each branch (whitelist or existing copy)
+        Fetch->>Branch: checkout_and_copy_br(repo, branch)
+        alt First copy (whitelisted)
+            Branch->>Branch: mkdir copy dir (no .skipping)
+            Branch->>Branch: git archive ref | tar -x to copy dir
+        else First copy (non-whitelisted)
+            Branch->>Branch: mkdir copy dir + touch .skipping
+        else Valid branch (no .skipping, no .debugging)
+            Branch->>Branch: git archive origin/branch | tar -x (staging then mv, or overwrite if .no-cleanup)
+            Branch->>Post: Run post script (if exists)
+            Post-->>Branch: done
+            Branch->>Docker: Restart docker (if configured)
+            Docker-->>Branch: done
+        end
+        Branch-->>Fetch: touch .living
+    end
+
+    loop For each release tag (pattern, exclude, top-N, version-sorted)
+        Fetch->>Tag: checkout_and_copy_tag(repo, tag)
+        Tag->>Tag: mkdir copy dir (if missing)
+        Tag->>Tag: git archive tag | tar -x to copy dir
+        alt Is latest release
+            Tag->>Tag: Update .prod.latest symlink
+            Tag->>Post: Run post script (if exists)
+            Post-->>Tag: done
+            Tag->>Docker: Restart docker (if configured)
+            Docker-->>Tag: done
+        end
+        Tag-->>Fetch: touch .living
+    end
+
+    Fetch->>Fetch: Cleanup old dirs: .stopping or no .living then rename to .to-be-removed
+
+    Fetch-->>RepoLoop: return
+    RepoLoop-->>Main: Done with repo
+
+    Main->>Main: Remove $CI_LOCK
+    Main->>Main: sleep $SLEEP_TIME (if set) → loop again
+    Main->>Main: exit (if no sleep)

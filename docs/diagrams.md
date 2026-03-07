@@ -8,50 +8,56 @@
 flowchart TD
 
     A[Start Script] --> B[main function]
-    B --> C[Ensure $DIR_REPOS exists]
+    B --> C[Ensure $DIR_BASE, $DIR_REPOS, $DIR_COPIES]
     C --> D{Loop forever or once}
     
-    D -->|Lock exists| D1[Sleep until lock released] --> D
-    D -->|No lock| E[Create $CI_LOCK]
+    D --> E[Acquire $CI_LOCK - retry up to 100s]
+    E -->|Failed| EX[Error and exit]
+    E -->|OK| F[cd $DIR_REPOS]
 
-    E --> F[cd $DIR_REPOS]
-    F --> G[For each repo in $DIR_REPOS]
-    G -->|Repo has .git| H[fetch_and_check]
-  
+    F --> G[Build repo list: REPO_WHITELIST or all git dirs]
+    G --> H[For each repo in list]
+    H -->|Repo has .git| I[fetch_and_check]
 
-    H --> I[Remove stale .git/index.lock]
-    I --> J[git fetch --all --tags]
+    I --> I1[Remove stale .git/index.lock]
+    I1 --> J[git fetch -q --all --tags --prune --prune-tags]
     J --> K[For each remote branch]
-    K -->|Whitelisted or copy exists| L[checkout_and_copy_br]
-    L --> L1[Update copy dir & rsync files]
+    K -->|In BR_WHITELIST / BR_WHITELIST_PER_REPO or copy exists| L[checkout_and_copy_br]
+    L --> L1[git archive ref \| tar -x to copy dir]
     L --> L2[Run post script if exists]
     L --> L3[Restart docker if configured]
     L --> M[Touch .living file]
     K --> M
 
-    J --> N[For each release tag matching vX.Y.Z]
-    N --> O[checkout_and_copy_tag]
-    O --> O1[Create copy dir if missing]
-    O --> O2[rsync files]
-    O --> O3[Run post script if exists]
-    O --> O4[Restart docker if configured]
-    O --> P[Touch .living file]
+    J --> N[get_release_tags: pattern, exclude, top-N, version-sorted]
+    N --> O[For each release tag]
+    O --> O1[checkout_and_copy_tag: create dir if missing, git archive tag \| tar -x]
+    O1 --> O2{Is latest release?}
+    O2 -->|Yes| O3[Update .prod.latest symlink]
+    O3 --> O4[Run post script if exists]
+    O4 --> O5[Restart docker if configured]
+    O2 -->|No| O6[Skip post/docker for this tag]
+    O5 --> P[Touch .living file]
+    O6 --> P
 
-    J --> Q[Clean up deprecated dirs]
-    Q --> Q1[If dir has no .living → rename to .to-be-removed]
+    J --> Q[Clean up deprecated dirs in copies]
+    Q --> Q1[.stopping? → clear dir, touch .skipping and .living]
+    Q --> Q2[No .living? → rename to .to-be-removed]
 
     P --> R[Return to $DIR_REPOS]
     M --> R
     R --> S[Next repo]
 
-    S --> G
-    S --> T[Remove $CI_LOCK]
-    T --> U{SLEEP_TIME set?}
+    S --> H
+    S --> T[Release $CI_LOCK]
+    T --> U{SLEEP_TIME set and > 0?}
     U -->|No| V[Exit]
     U -->|Yes| W[sleep $SLEEP_TIME] --> D
 ```
 
 ### Source
+
+Logic is implemented in `src/check-push.sh`. Config: `RELEASE_TAG_PATTERN`, `RELEASE_TAG_EXCLUDE_PATTERN`, `RELEASE_TAG_TOPN`, `REPO_WHITELIST`, `BR_WHITELIST`, `BR_WHITELIST_PER_REPO`, `DIR_BASE` → `DIR_REPOS`/`DIR_COPIES`, `CI_LOCK`.
 
 ## Sequence diagram
 
@@ -70,21 +76,21 @@ sequenceDiagram
     participant Post as _handle_post()
     participant Docker as _handle_docker()
 
-    Main->>RepoLoop: Iterate repos in $DIR_REPOS
+    Main->>RepoLoop: Iterate repos (REPO_WHITELIST or all git dirs in $DIR_REPOS)
     RepoLoop->>Fetch: fetch_and_check(repo)
 
     Fetch->>Fetch: Remove .git/index.lock
-    Fetch->>Fetch: git fetch --all --tags
+    Fetch->>Fetch: git fetch -q --all --tags --prune --prune-tags
 
-    loop For each branch
+    loop For each branch (whitelist or existing copy)
         Fetch->>Branch: checkout_and_copy_br(repo, branch)
         alt First copy (whitelisted)
             Branch->>Branch: mkdir copy dir (no .skipping)
-            Branch->>Branch: git archive → copy files
+            Branch->>Branch: git archive ref | tar -x to copy dir
         else First copy (non-whitelisted)
-            Branch->>Branch: mkdir copy dir + .skipping
-        else Valid branch (no .skipping)
-            Branch->>Branch: git archive / update files
+            Branch->>Branch: mkdir copy dir + touch .skipping
+        else Valid branch (no .skipping, no .debugging)
+            Branch->>Branch: git archive origin/branch | tar -x (staging then mv, or overwrite if .no-cleanup)
             Branch->>Post: Run post script (if exists)
             Post-->>Branch: done
             Branch->>Docker: Restart docker (if configured)
@@ -93,18 +99,21 @@ sequenceDiagram
         Branch-->>Fetch: touch .living
     end
 
-    loop For each release tag
+    loop For each release tag (pattern, exclude, top-N, version-sorted)
         Fetch->>Tag: checkout_and_copy_tag(repo, tag)
         Tag->>Tag: mkdir copy dir (if missing)
-        Tag->>Tag: git checkout tag + rsync files
-        Tag->>Post: Run post script (if exists)
-        Post-->>Tag: done
-        Tag->>Docker: Restart docker (if configured)
-        Docker-->>Tag: done
+        Tag->>Tag: git archive tag | tar -x to copy dir
+        alt Is latest release
+            Tag->>Tag: Update .prod.latest symlink
+            Tag->>Post: Run post script (if exists)
+            Post-->>Tag: done
+            Tag->>Docker: Restart docker (if configured)
+            Docker-->>Tag: done
+        end
         Tag-->>Fetch: touch .living
     end
 
-    Fetch->>Fetch: Cleanup old dirs (no .living → rename)
+    Fetch->>Fetch: Cleanup old dirs: .stopping or no .living then rename to .to-be-removed
 
     Fetch-->>RepoLoop: return
     RepoLoop-->>Main: Done with repo

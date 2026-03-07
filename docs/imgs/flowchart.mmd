@@ -1,0 +1,48 @@
+flowchart TD
+
+    A[Start Script] --> B[main function]
+    B --> C[Ensure $DIR_BASE, $DIR_REPOS, $DIR_COPIES]
+    C --> D{Loop forever or once}
+    
+    D --> E[Acquire $CI_LOCK - retry up to 100s]
+    E -->|Failed| EX[Error and exit]
+    E -->|OK| F[cd $DIR_REPOS]
+
+    F --> G[Build repo list: REPO_WHITELIST or all git dirs]
+    G --> H[For each repo in list]
+    H -->|Repo has .git| I[fetch_and_check]
+
+    I --> I1[Remove stale .git/index.lock]
+    I1 --> J[git fetch -q --all --tags --prune --prune-tags]
+    J --> K[For each remote branch]
+    K -->|In BR_WHITELIST / BR_WHITELIST_PER_REPO or copy exists| L[checkout_and_copy_br]
+    L --> L1["git archive ref | tar -x to copy dir"]
+    L --> L2[Run post script if exists]
+    L --> L3[Restart docker if configured]
+    L --> M[Touch .living file]
+    K --> M
+
+    J --> N[get_release_tags: pattern, exclude, top-N, version-sorted]
+    N --> O[For each release tag]
+    O --> O1["checkout_and_copy_tag: create dir if missing, git archive tag | tar -x"]
+    O1 --> O2{Is latest release?}
+    O2 -->|Yes| O3[Update .prod.latest symlink]
+    O3 --> O4[Run post script if exists]
+    O4 --> O5[Restart docker if configured]
+    O2 -->|No| O6[Skip post/docker for this tag]
+    O5 --> P[Touch .living file]
+    O6 --> P
+
+    J --> Q[Clean up deprecated dirs in copies]
+    Q --> Q1[.stopping? → clear dir, touch .skipping and .living]
+    Q --> Q2[No .living? → rename to .to-be-removed]
+
+    P --> R[Return to $DIR_REPOS]
+    M --> R
+    R --> S[Next repo]
+
+    S --> H
+    S --> T[Release $CI_LOCK]
+    T --> U{SLEEP_TIME set and > 0?}
+    U -->|No| V[Exit]
+    U -->|Yes| W[sleep $SLEEP_TIME] --> D
