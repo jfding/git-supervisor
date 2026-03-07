@@ -8,11 +8,10 @@ TOPDIR=$(cd ../../; pwd)
 cp $TOPDIR/src/*.sh $BUILDDIR
 cp $TOPDIR/VERSION $BUILDDIR
 
-# Copy Rust source code for Docker build
-mkdir -p $BUILDDIR/src/check-push-rs
-cp -r $TOPDIR/check-push-rs/* $BUILDDIR/src/check-push-rs/
+# Copy supervisor for Docker build (exclude target to keep context small)
+rsync -a --exclude target "$TOPDIR/supervisor" "$BUILDDIR/"
 
-cd $TOPDIR/src/gh-webhook/
+cd $TOPDIR/gh-webhook/
 uv build
 cp dist/*.whl $BUILDDIR
 cp hook.py $BUILDDIR
@@ -22,4 +21,4 @@ docker build -t rushiai/auto-reloader:$TODAY .
 
 # clean up
 rm -f *.whl hook.py check-push.sh prod2latest.sh cleanup-archives.sh VERSION
-rm -rf src/
+rm -rf supervisor/
