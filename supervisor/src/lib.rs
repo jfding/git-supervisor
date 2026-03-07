@@ -217,6 +217,7 @@ pub fn run_watch(
                 let check_push_env = ops::CheckPushEnv {
                     repo_whitelist,
                     repo_branches: br_whitelist_per_host,
+                    log_level: config.defaults.as_ref().and_then(|d| d.log_level),
                     release_tag_topn: host.release_count,
                     release_tag_pattern: host.release_tag_pattern.clone(),
                     release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
@@ -236,7 +237,7 @@ pub fn run_watch(
         });
 
         if interval_secs == 0 {
-            eprintln!("{}", console::highlight("interval is 0, run once and quit"));
+            eprintln!("{}", console::info("interval is 0, run once and quit"));
             break;
         }
 
@@ -244,7 +245,7 @@ pub fn run_watch(
             Some(d) => {
                 let remaining = d.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
-                    eprintln!("{}", console::highlight("watch timeout reached, stopping"));
+                    eprintln!("{}", console::info("watch timeout reached, stopping"));
                     break;
                 }
                 remaining.min(interval)

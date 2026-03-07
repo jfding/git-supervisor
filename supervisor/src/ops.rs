@@ -105,6 +105,7 @@ const CHECK_PUSH_CI_LOCK: &str = "/tmp/.git-supervisor-lock.d";
 pub struct CheckPushEnv {
     pub repo_whitelist: Option<String>,
     pub repo_branches: Option<String>,
+    pub log_level: Option<u8>,
     pub release_tag_topn: Option<u32>,
     pub release_tag_pattern: Option<String>,
     pub release_tag_exclude_pattern: Option<String>,
@@ -117,6 +118,9 @@ fn build_check_push_extra_env(env: &CheckPushEnv) -> String {
     }
     if let Some(s) = &env.repo_branches {
         env_parts.push(format!("BR_WHITELIST_PER_REPO={}", escape_single_quoted(s)));
+    }
+    if let Some(n) = env.log_level {
+        env_parts.push(format!("LOGLEVEL={}", n));
     }
     if let Some(n) = env.release_tag_topn {
         env_parts.push(format!("RELEASE_TAG_TOPN={}", n));
@@ -210,6 +214,20 @@ mod tests {
         assert!(
             extra.contains("RELEASE_TAG_EXCLUDE_PATTERN="),
             "extra env should include RELEASE_TAG_EXCLUDE_PATTERN, got: {:?}",
+            extra
+        );
+    }
+
+    #[test]
+    fn build_check_push_extra_env_includes_loglevel() {
+        let env = CheckPushEnv {
+            log_level: Some(1),
+            ..Default::default()
+        };
+        let extra = build_check_push_extra_env(&env);
+        assert!(
+            extra.contains("LOGLEVEL=1"),
+            "extra env should include LOGLEVEL=1, got: {:?}",
             extra
         );
     }

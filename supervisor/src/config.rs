@@ -20,6 +20,8 @@ pub struct Defaults {
     pub dir_base: Option<String>,
     #[serde(alias = "branch_whitelist")]
     pub branches: Option<Vec<String>>,
+    #[serde(rename = "log-level", alias = "log_level")]
+    pub log_level: Option<u8>,
 }
 
 /// One repo reference in a host's repo list. Can be a plain name or `{ name, branches? }`.
@@ -168,6 +170,7 @@ mod tests {
 defaults:
   dir_base: /work
   branches: [main, master, dev]
+  log-level: 3
 
 repos:
   webapp:
@@ -183,6 +186,7 @@ hosts:
             config.defaults.as_ref().unwrap().dir_base.as_deref(),
             Some("/work")
         );
+        assert_eq!(config.defaults.as_ref().unwrap().log_level, Some(3));
         let host = config.hosts.get("app-server").unwrap();
         assert_eq!(host.ssh_target, "deploy@app-server.example.com");
         assert_eq!(
@@ -395,5 +399,20 @@ hosts:
         let without_p = config.hosts.get("without-patterns").unwrap();
         assert_eq!(without_p.release_tag_pattern, None);
         assert_eq!(without_p.release_tag_exclude_pattern, None);
+    }
+
+    #[test]
+    fn defaults_log_level_parsed() {
+        let yaml = r#"
+defaults:
+  log-level: 1
+repos: {}
+hosts:
+  h:
+    ssh_target: u@h
+    repos: []
+"#;
+        let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.defaults.as_ref().unwrap().log_level, Some(1));
     }
 }

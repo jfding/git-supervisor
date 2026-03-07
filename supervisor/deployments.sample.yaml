@@ -4,6 +4,7 @@
 defaults:
   dir_base: /srv/git-supervisor/work
   branches: [main, master]  # default for hosts that don't set branches per repo
+  log-level: 2  # optional; passed to remote check-push.sh as LOGLEVEL
 
 # Define repos once (git_url only); hosts reference them by name and set branches per host/repo.
 repos:
