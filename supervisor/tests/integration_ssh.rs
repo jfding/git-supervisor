@@ -2,7 +2,7 @@
 //! Requires `ssh localhost` to work (e.g. passwordless or key-based).
 //! Run with: cargo test --test integration_ssh -- --ignored
 
-use supervisor::{run_watch, CentralConfig};
+use git_supervisor::{run_watch, CentralConfig};
 
 #[test]
 #[ignore = "requires ssh localhost and git on localhost"]

@@ -1,7 +1,14 @@
 [package]
-name = "supervisor"
+name = "git-supervisor"
 version = "2.0.0"
 edition = "2021"
+authors = ["JF Ding <jfding@gmail.com>"]
+description = "Central supervisor to control remote hosts and git repos for deployment"
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/jfding/git-supervisor"
+keywords = ["deployment", "git", "devops", "automation"]
+categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]
 anyhow = "1.0.102"

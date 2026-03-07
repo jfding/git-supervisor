@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# LICENSE: MIT
+
 set -u
 set -o pipefail
 
