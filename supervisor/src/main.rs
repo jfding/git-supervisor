@@ -1,6 +1,7 @@
 use clap::Parser;
-use std::path::PathBuf;
+use git_supervisor::console;
 use git_supervisor::{run_check, run_watch, CentralConfig};
+use std::path::PathBuf;
 
 /// Version from repo VERSION file (set in build.rs).
 const APP_VERSION: &str = env!("APP_VERSION");
@@ -44,7 +45,7 @@ fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
     match CentralConfig::load(path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Error loading config: {}", e);
+            eprintln!("{}", console::error(format!("Error loading config: {}", e)));
             std::process::exit(1);
         }
     }
@@ -56,14 +57,16 @@ fn main() {
 
     let result = match &cli.command {
         Command::Check => run_check(&config),
-        Command::Watch(args) => run_watch(&config,
-                                          args.interval,
-                                          args.timeout,
-                                          args.ignore_missing,
-                                          args.skip_prepare),
+        Command::Watch(args) => run_watch(
+            &config,
+            args.interval,
+            args.timeout,
+            args.ignore_missing,
+            args.skip_prepare,
+        ),
     };
     if let Err(e) = result {
-        eprintln!("Error: {}", e);
+        eprintln!("{}", console::error(format!("Error: {}", e)));
         std::process::exit(1);
     }
 }

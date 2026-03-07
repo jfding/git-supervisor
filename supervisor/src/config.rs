@@ -91,8 +91,8 @@ impl CentralConfig {
     pub fn load(path: &Path) -> Result<Self> {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
-        let config: CentralConfig = serde_yaml::from_str(&content)
-            .context("Failed to parse YAML config")?;
+        let config: CentralConfig =
+            serde_yaml::from_str(&content).context("Failed to parse YAML config")?;
         if config.hosts.is_empty() {
             anyhow::bail!("Config must have at least one host under 'hosts'");
         }
@@ -179,17 +179,27 @@ hosts:
     repos: [webapp]
 "#;
         let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.defaults.as_ref().unwrap().dir_base.as_deref(), Some("/work"));
+        assert_eq!(
+            config.defaults.as_ref().unwrap().dir_base.as_deref(),
+            Some("/work")
+        );
         let host = config.hosts.get("app-server").unwrap();
         assert_eq!(host.ssh_target, "deploy@app-server.example.com");
-        assert_eq!(host.repos.iter().map(|r| r.name()).collect::<Vec<_>>(), vec!["webapp"]);
+        assert_eq!(
+            host.repos.iter().map(|r| r.name()).collect::<Vec<_>>(),
+            vec!["webapp"]
+        );
         let repos = config.repos_for_host("app-server");
         assert_eq!(repos.len(), 1);
         assert_eq!(repos[0].name, "webapp");
         assert_eq!(repos[0].git_url, "git@github.com:org/webapp.git");
         assert_eq!(
             repos[0].branches,
-            Some(vec!["main".to_string(), "master".to_string(), "dev".to_string()])
+            Some(vec![
+                "main".to_string(),
+                "master".to_string(),
+                "dev".to_string()
+            ])
         );
     }
 
@@ -236,8 +246,14 @@ hosts:
 "#;
         let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.dir_base_for_host("h"), PathBuf::from("/var/work"));
-        assert_eq!(config.dir_repos_for_host("h"), PathBuf::from("/var/work/git_repos"));
-        assert_eq!(config.dir_copies_for_host("h"), PathBuf::from("/var/work/copies"));
+        assert_eq!(
+            config.dir_repos_for_host("h"),
+            PathBuf::from("/var/work/git_repos")
+        );
+        assert_eq!(
+            config.dir_copies_for_host("h"),
+            PathBuf::from("/var/work/copies")
+        );
     }
 
     #[test]
@@ -314,12 +330,21 @@ hosts:
         let app_repos = config.repos_for_host("app-server");
         assert_eq!(app_repos.len(), 2);
         assert_eq!(app_repos[0].name, "webapp");
-        assert_eq!(app_repos[0].branches, Some(vec!["main".to_string(), "release".to_string()]));
+        assert_eq!(
+            app_repos[0].branches,
+            Some(vec!["main".to_string(), "release".to_string()])
+        );
         assert_eq!(app_repos[1].name, "api");
-        assert_eq!(app_repos[1].branches, Some(vec!["main".to_string(), "master".to_string()]));
+        assert_eq!(
+            app_repos[1].branches,
+            Some(vec!["main".to_string(), "master".to_string()])
+        );
         let other_repos = config.repos_for_host("other-host");
         assert_eq!(other_repos.len(), 1);
-        assert_eq!(other_repos[0].branches, Some(vec!["main".to_string(), "master".to_string()]));
+        assert_eq!(
+            other_repos[0].branches,
+            Some(vec!["main".to_string(), "master".to_string()])
+        );
     }
 
     #[test]
@@ -336,8 +361,14 @@ hosts:
     repos: []
 "#;
         let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.hosts.get("with-count").unwrap().release_count, Some(10));
-        assert_eq!(config.hosts.get("without-count").unwrap().release_count, None);
+        assert_eq!(
+            config.hosts.get("with-count").unwrap().release_count,
+            Some(10)
+        );
+        assert_eq!(
+            config.hosts.get("without-count").unwrap().release_count,
+            None
+        );
     }
 
     #[test]
@@ -357,7 +388,10 @@ hosts:
         let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
         let with_p = config.hosts.get("with-patterns").unwrap();
         assert_eq!(with_p.release_tag_pattern.as_deref(), Some("^v[0-9]+\\.0$"));
-        assert_eq!(with_p.release_tag_exclude_pattern.as_deref(), Some("^v0\\."));
+        assert_eq!(
+            with_p.release_tag_exclude_pattern.as_deref(),
+            Some("^v0\\.")
+        );
         let without_p = config.hosts.get("without-patterns").unwrap();
         assert_eq!(without_p.release_tag_pattern, None);
         assert_eq!(without_p.release_tag_exclude_pattern, None);

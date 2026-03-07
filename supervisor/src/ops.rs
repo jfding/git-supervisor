@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 use crate::config::{Host, Repo};
+use crate::console::{self, Color};
 use crate::ssh;
 
 /// Escape a path for use inside single quotes in a remote shell.
@@ -12,21 +13,19 @@ fn escape_single_quoted(s: &str) -> String {
 
 /// Check that `git` is available on the remote host (run `git --version`).
 pub fn check_git_available(host: &Host) -> Result<()> {
-    ssh::ssh_run(host, "git --version > /dev/null 2>&1").context("git not found or not runnable on remote (is git installed?)")
+    ssh::ssh_run(host, "git --version > /dev/null 2>&1")
+        .context("git not found or not runnable on remote (is git installed?)")
 }
 
 /// Check that `docker` is available on the remote host (run `docker --version`).
 /// Returns Err if docker is not found or not runnable; used for optional warning only.
 pub fn check_docker_available(host: &Host) -> Result<()> {
-    ssh::ssh_run(host, "docker --version > /dev/null 2>&1").context("docker not found or not runnable")
+    ssh::ssh_run(host, "docker --version > /dev/null 2>&1")
+        .context("docker not found or not runnable")
 }
 
 /// Create dir_repos and dir_copies on the remote host.
-pub fn create_dirs(
-    host: &Host,
-    dir_repos: &Path,
-    dir_copies: &Path,
-) -> Result<()> {
+pub fn create_dirs(host: &Host, dir_repos: &Path, dir_copies: &Path) -> Result<()> {
     let r = escape_single_quoted(&dir_repos.to_string_lossy());
     let c = escape_single_quoted(&dir_copies.to_string_lossy());
     let command = format!("mkdir -p {} {} 2>/dev/null", r, c);
@@ -35,12 +34,7 @@ pub fn create_dirs(
 
 /// Ensure the repo exists on the remote: clone if missing unless `ignore_missing` is true
 /// dir_repos is the path to the git_repos directory on the remote.
-pub fn ensure_repo(
-    host: &Host,
-    dir_repos: &Path,
-    repo: &Repo,
-    ignore_missing: bool,
-) -> Result<()> {
+pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: bool) -> Result<()> {
     // Sanitize: name and git_url must not be used in shell eval. We pass them as
     // arguments to a single-quoted script fragment. The only way to get out of
     // single quotes is a closing quote, so we must not allow ' in name or git_url
@@ -60,36 +54,45 @@ pub fn ensure_repo(
 
     // Build remote command: cd to dir_repos, then clone if missing
     let command = if !ignore_missing {
+        let new_repo_line = console::shell_printf_inline(
+            &format!("    New repo [{}]: ", repo.name),
+            Some(Color::Green),
+        );
+        let existing_repo_line = console::shell_printf(
+            &format!("    Existing repo [{}]: (ready)", repo.name),
+            None
+        );
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
-  echo -n '    New repo [{}]: '; git clone '{}' '{}'; \
+  {}; git clone '{}' '{}'; \
 else \
-  echo '    Existing repo [{}]: (ready)'; \
+  {}; \
 fi",
-            dir_esc,
-            name_esc,
-            name_esc,
-            url_esc,
-            name_esc,
-            name_esc,
+            dir_esc, name_esc, new_repo_line, url_esc, name_esc, existing_repo_line,
         )
     } else {
+        let missing_repo_line = console::shell_printf(
+            &format!("    Missing repo [{}]: (ignored)", repo.name),
+            Some(Color::Yellow),
+        );
+        let existing_repo_line = console::shell_printf(
+            &format!("    Existing repo [{}]: (ready)", repo.name),
+            Some(Color::Green),
+        );
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
-  echo '    Missing repo [{}]: (ignored)'; \
+  {}; \
 else \
-  echo '    Existing repo [{}]: (ready)'; \
+  {}; \
 fi",
-            dir_esc,
-            name_esc,
-            name_esc,
-            name_esc,
+            dir_esc, name_esc, missing_repo_line, existing_repo_line,
         )
     };
 
-    ssh::ssh_run(host, &command).with_context(|| format!("clone & [optional]fetch {} failed", repo.name))
+    ssh::ssh_run(host, &command)
+        .with_context(|| format!("clone & [optional]fetch {} failed", repo.name))
 }
 
 /// Sandbox env defaults for running check-push.sh on the remote (one-shot, no daemon loop).
@@ -122,7 +125,10 @@ fn build_check_push_extra_env(env: &CheckPushEnv) -> String {
         env_parts.push(format!("RELEASE_TAG_PATTERN={}", escape_single_quoted(s)));
     }
     if let Some(s) = &env.release_tag_exclude_pattern {
-        env_parts.push(format!("RELEASE_TAG_EXCLUDE_PATTERN={}", escape_single_quoted(s)));
+        env_parts.push(format!(
+            "RELEASE_TAG_EXCLUDE_PATTERN={}",
+            escape_single_quoted(s)
+        ));
     }
     if env_parts.is_empty() {
         String::new()
@@ -147,12 +153,13 @@ pub fn run_check_push_remote(
 
     // Export env vars then run script via stdin; script expects --once for one-shot.
     let command = format!(
-        "env DIR_BASE={} VERB={} TIMEOUT={} SLEEP_TIME=0 CI_LOCK='{}' HOST_ID='{}'{} bash -s -- --once",
+        "env DIR_BASE={} VERB={} TIMEOUT={} SLEEP_TIME=0 CI_LOCK='{}' HOST_ID='{}'{}{} bash -s -- --once",
         dir_base_esc,
         CHECK_PUSH_VERB,
         CHECK_PUSH_TIMEOUT,
         CHECK_PUSH_CI_LOCK,
         host_id_esc,
+        if console::color_enabled() { " FORCE_COLOR=1" } else { "" },
         extra
     );
     ssh::ssh_run_with_stdin(host, &command, script.as_bytes())
