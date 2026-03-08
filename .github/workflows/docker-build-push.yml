@@ -1,10 +1,10 @@
 ---
-name: ci
+name: docker build and push
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - master
 
 jobs:
   main:
@@ -30,8 +30,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           push: true
-          context: ./_docker
-          file: ./_docker/Dockerfile
+          context: ./
+          file: ./deployment/build/Dockerfile
           tags: rushiai/auto-reloader:${{ github.ref_name }}
 
       - name: Image digest

@@ -1,10 +1,10 @@
 # Build stage for supervisor binary
-FROM rust:1.75-slim as rust-builder
+FROM rust:1.89-slim AS rust-builder
 
 WORKDIR /build
-COPY VERSION /build/VERSION
-COPY supervisor /build/supervisor
-RUN cd /build/supervisor && cargo build --release
+COPY supervisor/ /build/
+RUN 
+RUN cargo build --release
 
 # Final stage
 FROM python:3.12-slim
@@ -18,26 +18,21 @@ RUN apt-get update && \
     curl \
     netcat-openbsd \
     xz-utils \
-    nodejs  \
-    npm  \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
-# for github.com ssh access
-COPY dot.ssh/* /root/.ssh/
-
-RUN mkdir -p /scripts
+RUN mkdir -p /scripts /webhook
 COPY VERSION /scripts/VERSION
-COPY check-push.sh /scripts
-COPY prod2latest.sh /scripts
-COPY cleanup-archives.sh /scripts
+COPY src/check-push.sh /scripts
 
 # Copy supervisor binary from build stage
-COPY --from=rust-builder /build/supervisor/target/release/supervisor /supervisor
-RUN chmod +x /supervisor
+COPY --from=rust-builder /build/target/release/git-supervisor /git-supervisor
+RUN chmod +x /git-supervisor
+
+# Webhook: install deps and copy script (no wheel build)
+RUN pip install --no-cache-dir "flask>=3.0.3"
+COPY gh-webhook/hook.py /webhook/hook.py
 
 WORKDIR /webhook
-COPY hook.py /webhook
-COPY *.whl /webhook
-RUN pip install /webhook/*.whl
-
-CMD /webhook/hook.py
+CMD ["python3", "/webhook/hook.py"]

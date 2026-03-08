@@ -9,8 +9,8 @@ pub mod ssh;
 
 pub use config::{CentralConfig, Defaults, Host, Repo};
 
-/// Embedded check-push.sh script (from repo src/check-push.sh), run on remote with sandbox env.
-const CHECK_PUSH_SCRIPT: &str = include_str!("../../src/check-push.sh");
+/// Embedded check-push.sh script, run on remote with sandbox env.
+const CHECK_PUSH_SCRIPT: &str = include_str!("../embed/check-push.sh");
 
 fn escape_single_quoted(s: &str) -> String {
     s.replace('\'', "'\\''")

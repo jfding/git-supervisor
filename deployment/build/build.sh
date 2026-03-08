@@ -20,5 +20,5 @@ cd $BUILDDIR
 docker build -t rushiai/auto-reloader:$TODAY .
 
 # clean up
-rm -f *.whl hook.py check-push.sh prod2latest.sh cleanup-archives.sh VERSION
+rm -f *.whl hook.py check-push.sh VERSION
 rm -rf supervisor/
