@@ -450,12 +450,12 @@ function fetch_and_check {
       [[ $_latest_path != $_cur_release_path ]] && {
         rm -f $_latest_link
         ln -sf $(basename $_cur_release_path) $_latest_link
-      }
 
-      # post scripts
-      _handle_post "${DIR_COPIES}/${_repo}.prod.post" ${_cur_release_path}
-      # restart docker instance
-      _handle_docker "${DIR_COPIES}/${_repo}.prod.docker"
+        # post scripts
+        _handle_post "${DIR_COPIES}/${_repo}.prod.post" ${_cur_release_path}
+        # restart docker instance
+        _handle_docker "${DIR_COPIES}/${_repo}.prod.docker"
+      }
     fi
 
     # heart beat
