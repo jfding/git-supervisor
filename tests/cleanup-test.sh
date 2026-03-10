@@ -6,7 +6,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEV_DIR="$(dirname "$SCRIPT_DIR")/work.test"
+DEV_DIR="$SCRIPT_DIR/work.test"
 
 echo "Cleaning up test environment..."
 

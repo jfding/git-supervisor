@@ -444,18 +444,20 @@ function fetch_and_check {
     # update latest version path symlink
     if [[ $_release == $_latest_release ]]; then
       local _latest_link="${DIR_COPIES}/${_repo}.prod.latest"
-      local _latest_path=$(readlink $_latest_link || echo "")
+      local _latest_path=${DIR_COPIES}/$(readlink $_latest_link || echo "")
       local _cur_release_path="${DIR_COPIES}/${_repo}.prod.${_release}"
 
       [[ $_latest_path != $_cur_release_path ]] && {
+        highlight "..linking latest release to [ $_release ]"
+
         rm -f $_latest_link
         ln -sf $(basename $_cur_release_path) $_latest_link
-      }
 
-      # post scripts
-      _handle_post "${DIR_COPIES}/${_repo}.prod.post" ${_cur_release_path}
-      # restart docker instance
-      _handle_docker "${DIR_COPIES}/${_repo}.prod.docker"
+        # post scripts
+        _handle_post "${DIR_COPIES}/${_repo}.prod.post" ${_cur_release_path}
+        # restart docker instance
+        _handle_docker "${DIR_COPIES}/${_repo}.prod.docker"
+      }
     fi
 
     # heart beat
