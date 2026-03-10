@@ -47,6 +47,10 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: strip supervisor/target/${{ matrix.target }}/release/git-supervisor
 
+      - name: Clear extended attributes (macOS)
+        if: matrix.os == 'macos-latest'
+        run: xattr -c supervisor/target/${{ matrix.target }}/release/git-supervisor
+
       - name: Pack artifact
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
