@@ -1,0 +1,35 @@
+---
+name: Rust build check
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Build & test
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspace: supervisor
+
+      - name: Check
+        working-directory: supervisor
+        run: cargo check
+
+      - name: Test
+        working-directory: supervisor
+        run: cargo test
