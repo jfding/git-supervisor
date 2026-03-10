@@ -11,12 +11,9 @@ app = Flask(__name__)
 # Secret for verifying GitHub webhook signature
 GITHUB_SECRET = 'bzpEZb1N6LY5O2woay7QB0NtKVXiSo2O'
 
-# Check if Rust binary should be used
-USE_RUST = os.environ.get('USE_RUST', '0') == '1'
-
 def _app_version():
     """Read project version from VERSION file (in container or repo root)."""
-    for path in ('/scripts/VERSION', '/app/VERSION', 'VERSION'):
+    for path in ('/scripts/VERSION', '/gh-webhook/VERSION', 'VERSION'):
         try:
             with open(path) as f:
                 return f.read().strip()
@@ -53,16 +50,13 @@ def webhook():
     payload = request.json
 
     if event == 'push':
-        # Run check-push script (Rust or bash version)
-        if USE_RUST:
-            script_path = '/scripts/check-push-rs'
-        else:
-            script_path = '/scripts/check-push.sh'
+        # Run check-push script
+        script_path = '/scripts/check-push.sh'
 
         try:
             subprocess.run([script_path] + ['--once'], check=True)
             version = _app_version()
-            payload = {'status': 'CI job started', 'engine': 'rust' if USE_RUST else 'bash'}
+            payload = {'status': 'CI job started', 'engine': 'check-push.sh'}
             if version:
                 payload['version'] = version
             return jsonify(payload), 200

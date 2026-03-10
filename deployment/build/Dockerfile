@@ -3,7 +3,8 @@ FROM rust:1.89-slim AS rust-builder
 
 WORKDIR /build
 COPY supervisor/ /build/
-RUN 
+COPY src/check-push.sh /build/embed/check-push.sh
+COPY VERSION /build/VERSION
 RUN cargo build --release
 
 # Final stage
