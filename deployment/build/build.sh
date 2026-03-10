@@ -1,24 +1,19 @@
 #!/bin/sh
 
-TODAY=$(date +%Y%m%d)
-
-BUILDDIR=$(pwd)
+METADIR=$(pwd)
 TOPDIR=$(cd ../../; pwd)
+BUILDDIR=$TOPDIR
 
-cp $TOPDIR/src/*.sh $BUILDDIR
-cp $TOPDIR/VERSION $BUILDDIR
+TODAY=$(date +%Y%m%d)
+LATEST_TAG="v$(cat $TOPDIR/VERSION)"
 
-# Copy supervisor for Docker build (exclude target to keep context small)
-rsync -a --exclude target "$TOPDIR/supervisor" "$BUILDDIR/"
-
-cd $TOPDIR/gh-webhook/
-uv build
-cp dist/*.whl $BUILDDIR
-cp hook.py $BUILDDIR
+# if current commit of git is not at the same as latest_tag, then append TODAY to the tag
+# Use 'git rev-list -n 1' to handle both lightweight and annotated tags
+if [ "$(git rev-parse HEAD)" != "$(git rev-list -n 1 $LATEST_TAG)" ]; then
+    TAG="${LATEST_TAG}-${TODAY}"
+else
+    TAG="${LATEST_TAG}"
+fi
 
 cd $BUILDDIR
-docker build -t rushiai/auto-reloader:$TODAY .
-
-# clean up
-rm -f *.whl hook.py check-push.sh VERSION
-rm -rf supervisor/
+docker build -f ${METADIR}/Dockerfile -t rushiai/auto-reloader:$TAG .
