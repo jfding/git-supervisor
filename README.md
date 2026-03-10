@@ -7,6 +7,19 @@
 - gh-webhook: hook service to listen for github.com callbacks. Once triggered, will run
   check-push.sh shell script to have one-shot check.
 
+## Download released binaries
+
+Pre-built **git-supervisor** binaries are published on [GitHub Releases](https://github.com/jfding/git-supervisor/releases) for:
+
+- **Linux** (x86_64): `git-supervisor-x86_64-unknown-linux-gnu-<tag>.tar.gz`
+- **macOS** (Apple Silicon): `git-supervisor-aarch64-apple-darwin-<tag>.tar.gz`
+
+**macOS:** If the binary is blocked or you see a security warning, clear extended attributes once after download:
+
+```bash
+xattr -c git-supervisor
+```
+
 ## Usage
 
 ### Run by Docker
@@ -19,25 +32,27 @@
 
 It's the default command entry for docker image, will listen on :9870 port.
 
-### Timer loop to check status of repos
+### Run git-supervisor cli to watch status of repos on multiple hosts
 
 If want to run a timer loop instead of web-hook, need to:
+
+- Specify the **command** as `/git-supervisor watch ...` for docker-run
+- Additional args can be appended in above line
+- To prepare the proper defined **deployments.yaml** for the target repos
+
+### (Legacy way) Run original shell script loop to check status of repos on local
 
 - Must set SLEEP_TIME env for docker-run, to specify the timeout values(seconds)
 - Specify the **command** as `/srcripts/check-push.sh` for docker-run
 - If no SLEEP_TIME env, the script will be run as one-shot checking.
 
-### Configuration (check-push.sh)
+#### ENV Configuration (check-push.sh)
 
 - **BR_WHITELIST**: Space-separated branch names to track and copy by default (e.g. `main master dev`). Override via env; default in script: `main master dev test alpha`. Whitelisted branches get their copy dir created and populated on first run; other branches are only tracked if a copy dir already exists (and then start with a `.skipping` flag until you remove it).
 
-### Init working git repos
+#### Init working git repos manually (without git-supervisor cli)
 
 In HOST, under the path *<work-volume>/git_repos/*, just use the regular `git clone` the target repos.
-
-### How to run util scripts in HOST
-
-All the scripts will be visible to HOST in the path: *<work-volume>/scripts/*.
 
 ## Development
 
