@@ -88,6 +88,6 @@ This updates `VERSION`, `supervisor/Cargo.toml`, and `gh-webhook/pyproject.toml`
 
 - first time to launch all tests: `./tests/launch-testing.sh`
 - if testing env is ready, to run: `./tests/scripts/test-check-push.sh`
-- to clean up test env, to run: `./tests/scripts/cleanup-test.sh`
+- to clean up test env, to run: `./tests/cleanup-test.sh`
 
 After everytime to run the test scripts, the results can be checked in `./tests/work.test/copies/`
