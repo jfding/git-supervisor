@@ -1,6 +1,6 @@
 [package]
 name = "git-supervisor"
-version = "2.0.3"
+version = "2.0.4"
 edition = "2021"
 authors = ["JF Ding <jfding@gmail.com>"]
 description = "Central supervisor to control remote hosts and git repos for deployment"
