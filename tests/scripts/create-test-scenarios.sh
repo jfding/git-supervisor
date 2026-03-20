@@ -11,25 +11,6 @@ COPIES_DIR="$DEV_DIR/copies"
 
 echo "Creating test scenarios..."
 
-# Create post-deployment scripts for testing
-create_post_script() {
-    local repo_name=$1
-    local branch=$2
-    local script_path="$COPIES_DIR/${repo_name}.${branch}.post"
-    
-    cat > "$script_path" << EOF
-#!/bin/bash
-echo "Post-deployment script for $repo_name branch $branch"
-echo "Timestamp: \$(date)"
-echo "Working directory: \$(pwd)"
-echo "Files in directory:"
-ls -la
-echo "Post-deployment completed for $repo_name.$branch"
-EOF
-    chmod +x "$script_path"
-    echo "Created post script: $script_path"
-}
-
 # Create Docker restart files for testing
 create_docker_script() {
     local repo_name=$1
@@ -42,12 +23,6 @@ create_docker_script() {
 }
 
 # Create various test scenarios
-echo "Creating post-deployment scripts..."
-create_post_script "webapp" "main"
-create_post_script "webapp" "dev"
-create_post_script "api-service" "main"
-create_post_script "api-service" "test"
-
 echo "Creating Docker restart files..."
 create_docker_script "webapp" "main"
 create_docker_script "api-service" "main"

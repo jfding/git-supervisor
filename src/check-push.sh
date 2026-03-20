@@ -235,18 +235,6 @@ function _timeout {
     fi
 }
 
-function _handle_post {
-    # post scripts
-    local _post_path=$1
-    local _cp_path=$2
-
-    if [[ -f "${_post_path}" ]]; then
-      highlight "..running post scripts [ $_post_path ]"
-      cd "${_cp_path}"
-      bash "${_post_path}"
-      cd - > /dev/null
-    fi
-}
 
 function _handle_docker {
     # restart docker instance
@@ -317,7 +305,6 @@ function checkout_and_copy_br {
   fi
 
   local _cp_path="${DIR_COPIES}/${_repo}.${_br}"
-  local _post_path="${_cp_path}.post"
   local _docker_path="${_cp_path}.docker"
 
   # if no copy of this br, create dir; whitelisted branches get checkout in same run,
@@ -408,9 +395,6 @@ function checkout_and_copy_br {
     fi
     echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
 
-    # post scripts
-    _handle_post ${_post_path} ${_cp_path}
-
     # restart docker instance
     _handle_docker ${_docker_path}
   fi
@@ -496,9 +480,7 @@ function fetch_and_check {
         rm -f $_latest_link
         ln -sf $(basename $_cur_release_path) $_latest_link
 
-        # post scripts
-        _handle_post "${DIR_COPIES}/${_repo}.prod.post" ${_cur_release_path}
-        # restart docker instance
+                # restart docker instance
         _handle_docker "${DIR_COPIES}/${_repo}.prod.docker"
       else
         debug "..latest release symlink already points to correct path, no update needed"

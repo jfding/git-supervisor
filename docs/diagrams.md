@@ -24,8 +24,7 @@ flowchart TD
     J --> K[For each remote branch]
     K -->|In BR_WHITELIST / BR_WHITELIST_PER_REPO or copy exists| L[checkout_and_copy_br]
     L --> L1[git archive ref \| tar -x to copy dir]
-    L --> L2[Run post script if exists]
-    L --> L3[Restart docker if configured]
+    L --> L2[Restart docker if configured]
     L --> M[Touch .living file]
     K --> M
 
@@ -34,11 +33,10 @@ flowchart TD
     O --> O1[checkout_and_copy_tag: create dir if missing, git archive tag \| tar -x]
     O1 --> O2{Is latest release?}
     O2 -->|Yes| O3[Update .prod.latest symlink]
-    O3 --> O4[Run post script if exists]
-    O4 --> O5[Restart docker if configured]
-    O2 -->|No| O6[Skip post/docker for this tag]
-    O5 --> P[Touch .living file]
-    O6 --> P
+    O3 --> O4[Restart docker if configured]
+    O4 --> P[Touch .living file]
+    O2 -->|No| O5[Skip docker for this tag]
+    O5 --> P
 
     J --> Q[Clean up deprecated dirs in copies]
     Q --> Q1[.stopping? → clear dir, touch .skipping and .living]
@@ -73,7 +71,6 @@ sequenceDiagram
     participant Fetch as fetch_and_check()
     participant Branch as checkout_and_copy_br()
     participant Tag as checkout_and_copy_tag()
-    participant Post as _handle_post()
     participant Docker as _handle_docker()
 
     Main->>RepoLoop: Iterate repos (REPO_WHITELIST or all git dirs in $DIR_REPOS)
@@ -91,8 +88,6 @@ sequenceDiagram
             Branch->>Branch: mkdir copy dir + touch .skipping
         else Valid branch (no .skipping, no .debugging)
             Branch->>Branch: git archive origin/branch | tar -x (staging then mv, or overwrite if .no-cleanup)
-            Branch->>Post: Run post script (if exists)
-            Post-->>Branch: done
             Branch->>Docker: Restart docker (if configured)
             Docker-->>Branch: done
         end
@@ -105,8 +100,6 @@ sequenceDiagram
         Tag->>Tag: git archive tag | tar -x to copy dir
         alt Is latest release
             Tag->>Tag: Update .prod.latest symlink
-            Tag->>Post: Run post script (if exists)
-            Post-->>Tag: done
             Tag->>Docker: Restart docker (if configured)
             Docker-->>Tag: done
         end
