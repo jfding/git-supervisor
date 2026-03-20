@@ -95,6 +95,13 @@ function warn {
   _logging 0 yellow "WARN: $*"
 }
 
+# True if $1 is unsafe for repo/branch/tag path segments (.., /, or \).
+# Pattern is held in a variable so | is not parsed as a shell operator inside [[ =~ ]].
+function _unsafe_path_segment {
+  local _unsafe_ere='\.\. |/|\\'
+  [[ "$1" =~ $_unsafe_ere ]]
+}
+
 # Sort version-like tags in descending order
 # Tag components are split on '.' and 'Q'; empty segments are treated as 0.
 function sort_version_tags_desc {
@@ -278,6 +285,11 @@ function checkout_and_copy_tag {
   local _repo=$1
   local _tag=$2
 
+  if _unsafe_path_segment "$_tag"; then
+    err "Invalid characters in tag name, possible path traversal attempt"
+    return 1
+  fi
+
   local _cp_path="${DIR_COPIES}/${_repo}.prod.${_tag}"
 
   # if path exists, skip but consider successful
@@ -298,6 +310,11 @@ function checkout_and_copy_br {
   local _repo=$1
   local _br=$2
   local _br_list="${3:-$BR_WHITELIST}"
+
+  if _unsafe_path_segment "$_br"; then
+    err "Invalid characters in branch name, possible path traversal attempt"
+    return 1
+  fi
 
   local _cp_path="${DIR_COPIES}/${_repo}.${_br}"
   local _post_path="${_cp_path}.post"
@@ -406,6 +423,12 @@ function fetch_and_check {
   local _release
   local _bp
   local _br_whitelist
+
+  if _unsafe_path_segment "$_repo"; then
+    err "Invalid repo name [$_repo], possible path traversal attempt"
+    return 1
+  fi
+
   _br_whitelist=$(get_branches_for_repo "$_repo")
 
   cd $_repo || { err "failed to cd to $_repo, critical issue, skip"; return 1; }
@@ -429,6 +452,11 @@ function fetch_and_check {
     [[ $_br = 'HEAD' ]] && continue
     (echo "$_br" | grep -q '/') && continue
 
+    if _unsafe_path_segment "$_br"; then
+      warn "Skipping invalid branch name [$_br], possible path traversal attempt"
+      continue
+    fi
+
     # check branch whitelist || repo dir exists already
     if [[ $_br_whitelist =~ (^|[[:space:]])$_br($|[[:space:]]) ]] || \
        [[ -d "${DIR_COPIES}/${_repo}.${_br}" ]]; then
@@ -447,6 +475,12 @@ function fetch_and_check {
 
   for _release in $_releases; do
     [[ -z "$_release" ]] && continue
+
+    if _unsafe_path_segment "$_release"; then
+      warn "Skipping invalid release tag [$_release], possible path traversal attempt"
+      continue
+    fi
+
     checkout_and_copy_tag $_repo $_release || continue
 
     # update latest version path symlink
