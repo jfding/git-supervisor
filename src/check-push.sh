@@ -102,6 +102,38 @@ function _unsafe_path_segment {
   [[ "$1" =~ $_unsafe_ere ]]
 }
 
+# rm -rf only when $1 resolves under DIR_COPIES (real path). Refuses the copies root itself.
+function _safe_rm_rf_copies {
+  local _target=$1
+  local _base _resolved _parent
+
+  [[ -n "${_target}" ]] || return 1
+  [[ -n "${DIR_COPIES:-}" ]] || { err "DIR_COPIES unset, refusing rm -rf"; return 1; }
+
+  _base=$(cd "${DIR_COPIES}" && pwd -P) || { err "cannot resolve DIR_COPIES for safe rm"; return 1; }
+
+  if [[ -e "${_target}" || -L "${_target}" ]]; then
+    _resolved=$(cd "${_target}" 2>/dev/null && pwd -P) || {
+      err "cannot resolve path for safe rm (broken link or inaccessible?): ${_target}"
+      return 1
+    }
+  else
+    _parent=$(dirname -- "${_target}")
+    [[ -d "${_parent}" ]] || { err "parent missing for safe rm: ${_target}"; return 1; }
+    _resolved=$(cd "${_parent}" && pwd -P)/$(basename -- "${_target}")
+  fi
+
+  case "${_resolved}/" in
+    "${_base}/"*) ;;
+    *)
+      err "refusing rm -rf outside copies tree: ${_target} (resolved: ${_resolved})"
+      return 1
+      ;;
+  esac
+
+  rm -rf -- "${_target}"
+}
+
 # Sort version-like tags in descending order
 # Tag components are split on '.' and 'Q'; empty segments are treated as 0.
 function sort_version_tags_desc {
@@ -287,7 +319,7 @@ function checkout_and_copy_tag {
   highlight "..copying files for new RELEASE [ $_tag ]"
   mkdir -p $_cp_path &&
     _git_checkout_ref_to $_tag $_cp_path || {
-      rm -rf $_cp_path
+      _safe_rm_rf_copies "${_cp_path}" || true
       err "failed to copy files for new RELEASE [ $_tag ]"
       return 1
     }
@@ -382,7 +414,7 @@ function checkout_and_copy_br {
       local _staging="${_cp_path}.staging.$$"
       mkdir -p "$_staging"
       _git_checkout_ref_to origin/$_br "$_staging" || {
-        rm -rf $_staging
+        _safe_rm_rf_copies "${_staging}" || true
         err "failed to copy files for [ $_br ]"
         return 1
       }
@@ -390,7 +422,7 @@ function checkout_and_copy_br {
       for _f in .no-cleanup .living .skipping .debugging; do
         [[ -e "${_cp_path}/${_f}" ]] && cp -p "${_cp_path}/${_f}" "${_staging}/"
       done
-      rm -rf "${_cp_path}"
+      _safe_rm_rf_copies "${_cp_path}" || return 1
       mv "${_staging}" "${_cp_path}"
     fi
     echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
@@ -504,7 +536,7 @@ function fetch_and_check {
       # manually marked as deprecated
       if [ -f "${_bp}/.stopping" ]; then
         # clean up all content
-        rm -rf "${_bp}"
+        _safe_rm_rf_copies "${_bp}" || { err "failed to remove deprecated dir ${_bp}"; continue; }
         mkdir -p "${_bp}"
         touch "${_bp}/.skipping"
         touch "${_bp}/.living"
