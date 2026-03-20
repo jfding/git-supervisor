@@ -3,7 +3,7 @@
 services:
     loader:
         restart: always
-        image: rushiai/auto-reloader:v2.0.4
+        image: rushiai/auto-reloader:v2.0.5
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - /usr/bin/docker:/usr/bin/docker
