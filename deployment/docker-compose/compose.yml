@@ -23,7 +23,9 @@ services:
 
         environment:
             - TZ=Asia/Shanghai
-            - VERB=1
+            - FORCE_COLOR=1
+            - LOGLEVEL=2
+               # default LOGLEVEL 2 means verbose
             #- TIMEOUT=120
                # default timeout of possible pending cmd is 120s
             #- SLEEP_TIME=360
