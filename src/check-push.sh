@@ -413,7 +413,9 @@ function fetch_and_check {
   # clean up trash file from last time crash
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
 
-  info "..fetching repo, for branches [$_br_whitelist]..."
+  info "..git-fetching to sync all remote branches and tags..."
+  verbose "..branch whitelist: [$_br_whitelist]"
+
   _timeout git fetch -q --all --tags --prune --prune-tags || {
     err "failed to fetch repo $_repo, skip"
     return 1
@@ -450,10 +452,11 @@ function fetch_and_check {
     # update latest version path symlink
     if [[ $_release == $_latest_release ]]; then
       local _latest_link="${DIR_COPIES}/${_repo}.prod.latest"
-      local _latest_path=${DIR_COPIES}/$(readlink $_latest_link || echo "")
+      local _latest_path=${DIR_COPIES}/$(readlink $_latest_link 2>/dev/null || echo "")
       local _cur_release_path="${DIR_COPIES}/${_repo}.prod.${_release}"
 
-      [[ $_latest_path != $_cur_release_path ]] && {
+      # Only perform symlink update and associated actions if the path actually differs
+      if [[ $_latest_path != $_cur_release_path ]]; then
         highlight "..linking latest release to [ $_release ]"
 
         rm -f $_latest_link
@@ -463,7 +466,9 @@ function fetch_and_check {
         _handle_post "${DIR_COPIES}/${_repo}.prod.post" ${_cur_release_path}
         # restart docker instance
         _handle_docker "${DIR_COPIES}/${_repo}.prod.docker"
-      }
+      else
+        debug "..latest release symlink already points to correct path, no update needed"
+      fi
     fi
 
     # heart beat
