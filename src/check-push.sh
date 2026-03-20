@@ -251,7 +251,13 @@ function _handle_docker {
     }
 
     if [[ -f "${_docker_path}" ]]; then
-      local _docker_name=$(cat "${_docker_path}")
+      local _docker_name=$(cat "${_docker_path}" | tr -d '\n\r')
+
+      # Validate docker name to prevent command injection
+      if [[ ! $_docker_name =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+        err "invalid docker name format in ${_docker_path}, skipping"
+        return 1
+      fi
 
       highlight "..restarting docker [ $_docker_name ]"
       _timeout docker restart "${_docker_name}" > /dev/null || \
