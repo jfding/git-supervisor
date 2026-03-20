@@ -4,7 +4,6 @@ sequenceDiagram
     participant Fetch as fetch_and_check()
     participant Branch as checkout_and_copy_br()
     participant Tag as checkout_and_copy_tag()
-    participant Post as _handle_post()
     participant Docker as _handle_docker()
 
     Main->>RepoLoop: Iterate repos (REPO_WHITELIST or all git dirs in $DIR_REPOS)
@@ -22,8 +21,6 @@ sequenceDiagram
             Branch->>Branch: mkdir copy dir + touch .skipping
         else Valid branch (no .skipping, no .debugging)
             Branch->>Branch: git archive origin/branch | tar -x (staging then mv, or overwrite if .no-cleanup)
-            Branch->>Post: Run post script (if exists)
-            Post-->>Branch: done
             Branch->>Docker: Restart docker (if configured)
             Docker-->>Branch: done
         end
@@ -36,8 +33,6 @@ sequenceDiagram
         Tag->>Tag: git archive tag | tar -x to copy dir
         alt Is latest release
             Tag->>Tag: Update .prod.latest symlink
-            Tag->>Post: Run post script (if exists)
-            Post-->>Tag: done
             Tag->>Docker: Restart docker (if configured)
             Docker-->>Tag: done
         end

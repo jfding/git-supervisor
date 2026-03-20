@@ -95,6 +95,45 @@ function warn {
   _logging 0 yellow "WARN: $*"
 }
 
+# True if $1 is unsafe for repo/branch/tag path segments (.., /, or \).
+# Pattern is held in a variable so | is not parsed as a shell operator inside [[ =~ ]].
+function _unsafe_path_segment {
+  local _unsafe_ere='\.\. |/|\\'
+  [[ "$1" =~ $_unsafe_ere ]]
+}
+
+# rm -rf only when $1 resolves under DIR_COPIES (real path). Refuses the copies root itself.
+function _safe_rm_rf_copies {
+  local _target=$1
+  local _base _resolved _parent
+
+  [[ -n "${_target}" ]] || return 1
+  [[ -n "${DIR_COPIES:-}" ]] || { err "DIR_COPIES unset, refusing rm -rf"; return 1; }
+
+  _base=$(cd "${DIR_COPIES}" && pwd -P) || { err "cannot resolve DIR_COPIES for safe rm"; return 1; }
+
+  if [[ -e "${_target}" || -L "${_target}" ]]; then
+    _resolved=$(cd "${_target}" 2>/dev/null && pwd -P) || {
+      err "cannot resolve path for safe rm (broken link or inaccessible?): ${_target}"
+      return 1
+    }
+  else
+    _parent=$(dirname -- "${_target}")
+    [[ -d "${_parent}" ]] || { err "parent missing for safe rm: ${_target}"; return 1; }
+    _resolved=$(cd "${_parent}" && pwd -P)/$(basename -- "${_target}")
+  fi
+
+  case "${_resolved}/" in
+    "${_base}/"*) ;;
+    *)
+      err "refusing rm -rf outside copies tree: ${_target} (resolved: ${_resolved})"
+      return 1
+      ;;
+  esac
+
+  rm -rf -- "${_target}"
+}
+
 # Sort version-like tags in descending order
 # Tag components are split on '.' and 'Q'; empty segments are treated as 0.
 function sort_version_tags_desc {
@@ -228,18 +267,6 @@ function _timeout {
     fi
 }
 
-function _handle_post {
-    # post scripts
-    local _post_path=$1
-    local _cp_path=$2
-
-    if [[ -f "${_post_path}" ]]; then
-      highlight "..running post scripts [ $_post_path ]"
-      cd "${_cp_path}"
-      bash "${_post_path}"
-      cd - > /dev/null
-    fi
-}
 
 function _handle_docker {
     # restart docker instance
@@ -251,7 +278,13 @@ function _handle_docker {
     }
 
     if [[ -f "${_docker_path}" ]]; then
-      local _docker_name=$(cat "${_docker_path}")
+      local _docker_name=$(cat "${_docker_path}" | tr -d '\n\r')
+
+      # Validate docker name to prevent command injection
+      if [[ ! $_docker_name =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+        err "invalid docker name format in ${_docker_path}, skipping"
+        return 1
+      fi
 
       highlight "..restarting docker [ $_docker_name ]"
       _timeout docker restart "${_docker_name}" > /dev/null || \
@@ -272,6 +305,11 @@ function checkout_and_copy_tag {
   local _repo=$1
   local _tag=$2
 
+  if _unsafe_path_segment "$_tag"; then
+    err "Invalid characters in tag name, possible path traversal attempt"
+    return 1
+  fi
+
   local _cp_path="${DIR_COPIES}/${_repo}.prod.${_tag}"
 
   # if path exists, skip but consider successful
@@ -281,7 +319,7 @@ function checkout_and_copy_tag {
   highlight "..copying files for new RELEASE [ $_tag ]"
   mkdir -p $_cp_path &&
     _git_checkout_ref_to $_tag $_cp_path || {
-      rm -rf $_cp_path
+      _safe_rm_rf_copies "${_cp_path}" || true
       err "failed to copy files for new RELEASE [ $_tag ]"
       return 1
     }
@@ -293,8 +331,12 @@ function checkout_and_copy_br {
   local _br=$2
   local _br_list="${3:-$BR_WHITELIST}"
 
+  if _unsafe_path_segment "$_br"; then
+    err "Invalid characters in branch name, possible path traversal attempt"
+    return 1
+  fi
+
   local _cp_path="${DIR_COPIES}/${_repo}.${_br}"
-  local _post_path="${_cp_path}.post"
   local _docker_path="${_cp_path}.docker"
 
   # if no copy of this br, create dir; whitelisted branches get checkout in same run,
@@ -372,7 +414,7 @@ function checkout_and_copy_br {
       local _staging="${_cp_path}.staging.$$"
       mkdir -p "$_staging"
       _git_checkout_ref_to origin/$_br "$_staging" || {
-        rm -rf $_staging
+        _safe_rm_rf_copies "${_staging}" || true
         err "failed to copy files for [ $_br ]"
         return 1
       }
@@ -380,13 +422,10 @@ function checkout_and_copy_br {
       for _f in .no-cleanup .living .skipping .debugging; do
         [[ -e "${_cp_path}/${_f}" ]] && cp -p "${_cp_path}/${_f}" "${_staging}/"
       done
-      rm -rf "${_cp_path}"
+      _safe_rm_rf_copies "${_cp_path}" || return 1
       mv "${_staging}" "${_cp_path}"
     fi
     echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
-
-    # post scripts
-    _handle_post ${_post_path} ${_cp_path}
 
     # restart docker instance
     _handle_docker ${_docker_path}
@@ -400,6 +439,12 @@ function fetch_and_check {
   local _release
   local _bp
   local _br_whitelist
+
+  if _unsafe_path_segment "$_repo"; then
+    err "Invalid repo name [$_repo], possible path traversal attempt"
+    return 1
+  fi
+
   _br_whitelist=$(get_branches_for_repo "$_repo")
 
   cd $_repo || { err "failed to cd to $_repo, critical issue, skip"; return 1; }
@@ -407,7 +452,9 @@ function fetch_and_check {
   # clean up trash file from last time crash
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
 
-  info "..fetching repo, for branches [$_br_whitelist]..."
+  info "..git-fetching to sync all remote branches and tags..."
+  verbose "..branch whitelist: [$_br_whitelist]"
+
   _timeout git fetch -q --all --tags --prune --prune-tags || {
     err "failed to fetch repo $_repo, skip"
     return 1
@@ -420,6 +467,11 @@ function fetch_and_check {
     # filters
     [[ $_br = 'HEAD' ]] && continue
     (echo "$_br" | grep -q '/') && continue
+
+    if _unsafe_path_segment "$_br"; then
+      warn "Skipping invalid branch name [$_br], possible path traversal attempt"
+      continue
+    fi
 
     # check branch whitelist || repo dir exists already
     if [[ $_br_whitelist =~ (^|[[:space:]])$_br($|[[:space:]]) ]] || \
@@ -439,25 +491,32 @@ function fetch_and_check {
 
   for _release in $_releases; do
     [[ -z "$_release" ]] && continue
+
+    if _unsafe_path_segment "$_release"; then
+      warn "Skipping invalid release tag [$_release], possible path traversal attempt"
+      continue
+    fi
+
     checkout_and_copy_tag $_repo $_release || continue
 
     # update latest version path symlink
     if [[ $_release == $_latest_release ]]; then
       local _latest_link="${DIR_COPIES}/${_repo}.prod.latest"
-      local _latest_path=${DIR_COPIES}/$(readlink $_latest_link || echo "")
+      local _latest_path=${DIR_COPIES}/$(readlink $_latest_link 2>/dev/null || echo "")
       local _cur_release_path="${DIR_COPIES}/${_repo}.prod.${_release}"
 
-      [[ $_latest_path != $_cur_release_path ]] && {
+      # Only perform symlink update and associated actions if the path actually differs
+      if [[ $_latest_path != $_cur_release_path ]]; then
         highlight "..linking latest release to [ $_release ]"
 
         rm -f $_latest_link
         ln -sf $(basename $_cur_release_path) $_latest_link
 
-        # post scripts
-        _handle_post "${DIR_COPIES}/${_repo}.prod.post" ${_cur_release_path}
-        # restart docker instance
+                # restart docker instance
         _handle_docker "${DIR_COPIES}/${_repo}.prod.docker"
-      }
+      else
+        debug "..latest release symlink already points to correct path, no update needed"
+      fi
     fi
 
     # heart beat
@@ -477,7 +536,7 @@ function fetch_and_check {
       # manually marked as deprecated
       if [ -f "${_bp}/.stopping" ]; then
         # clean up all content
-        rm -rf "${_bp}"
+        _safe_rm_rf_copies "${_bp}" || { err "failed to remove deprecated dir ${_bp}"; continue; }
         mkdir -p "${_bp}"
         touch "${_bp}/.skipping"
         touch "${_bp}/.living"
