@@ -1,6 +1,6 @@
 use clap::Parser;
 use git_supervisor::console;
-use git_supervisor::{run_check, run_watch, CentralConfig};
+use git_supervisor::{run_check, run_hook, run_watch, CentralConfig};
 use std::path::PathBuf;
 
 /// Version from repo VERSION file (set in build.rs).
@@ -23,6 +23,8 @@ enum Command {
     Check,
     /// Prepare remotes (create dirs, ensure repos) then run check-push on each host in a loop
     Watch(WatchArgs),
+    /// Start a GitHub webhook server that triggers check-push on push events
+    Hook(HookArgs),
 }
 
 #[derive(clap::Args)]
@@ -39,6 +41,19 @@ struct WatchArgs {
     /// Skip host/repos preparation checking at the start
     #[arg(short = 'S', long)]
     skip_prepare: bool,
+}
+
+#[derive(clap::Args)]
+struct HookArgs {
+    /// Port to listen on
+    #[arg(long, default_value = "9870")]
+    port: u16,
+    /// GitHub webhook secret (also reads GITHUB_WEBHOOK_SECRET env var)
+    #[arg(long, env = "GITHUB_WEBHOOK_SECRET")]
+    secret: String,
+    /// External script to run on push events instead of supervisor watch-once
+    #[arg(long)]
+    script: Option<String>,
 }
 
 fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
@@ -64,6 +79,16 @@ fn main() {
             args.ignore_missing,
             args.skip_prepare,
         ),
+        Command::Hook(args) => {
+            let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+            rt.block_on(run_hook(
+                config,
+                args.port,
+                args.secret.clone(),
+                args.script.clone(),
+                APP_VERSION.to_string(),
+            ))
+        }
     };
     if let Err(e) = result {
         eprintln!("{}", console::error(format!("Error: {}", e)));
