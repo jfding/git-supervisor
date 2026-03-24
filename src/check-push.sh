@@ -300,7 +300,7 @@ function _run_docker_hook_job {
     return 1
   }
 
-  highlight "..running docker ${_stage}-hook [ ${_hook_real} ]"
+  highlight "..running docker ${_stage}-hook [ \$DIR_COPIES/${_hook_real##$DIR_COPIES/} ]"
   (
     if [[ -n "${_work_dir}" ]]; then
       cd "${_work_dir}" || {
