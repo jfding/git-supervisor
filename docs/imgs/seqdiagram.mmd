@@ -21,7 +21,9 @@ sequenceDiagram
             Branch->>Branch: mkdir copy dir + touch .skipping
         else Valid branch (no .skipping, no .debugging)
             Branch->>Branch: git archive origin/branch | tar -x (staging then mv, or overwrite if .no-cleanup)
+            Branch->>Docker: Run .docker.pre (if present)
             Branch->>Docker: Restart docker (if configured)
+            Branch->>Docker: Run .docker.post (if present)
             Docker-->>Branch: done
         end
         Branch-->>Fetch: touch .living
@@ -33,7 +35,9 @@ sequenceDiagram
         Tag->>Tag: git archive tag | tar -x to copy dir
         alt Is latest release
             Tag->>Tag: Update .prod.latest symlink
+            Tag->>Docker: Run .docker.pre (if present)
             Tag->>Docker: Restart docker (if configured)
+            Tag->>Docker: Run .docker.post (if present)
             Docker-->>Tag: done
         end
         Tag-->>Fetch: touch .living

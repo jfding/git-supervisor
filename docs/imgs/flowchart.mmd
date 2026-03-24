@@ -17,7 +17,7 @@ flowchart TD
     J --> K[For each remote branch]
     K -->|In BR_WHITELIST / BR_WHITELIST_PER_REPO or copy exists| L[checkout_and_copy_br]
     L --> L1["git archive ref | tar -x to copy dir"]
-    L --> L2[Restart docker if configured]
+    L --> L2[Run docker pre-hook, restart docker, post-hook if configured]
     L --> M[Touch .living file]
     K --> M
 
@@ -26,7 +26,7 @@ flowchart TD
     O --> O1["checkout_and_copy_tag: create dir if missing, git archive tag | tar -x"]
     O1 --> O2{Is latest release?}
     O2 -->|Yes| O3[Update .prod.latest symlink]
-    O3 --> O4[Restart docker if configured]
+    O3 --> O4[Run docker pre-hook, restart docker, post-hook if configured]
     O4 --> P[Touch .living file]
     O2 -->|No| O5[Skip docker for this tag]
     O5 --> P

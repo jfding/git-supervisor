@@ -76,6 +76,42 @@ for _repo in webapp api-service mobile-app; do
 done
 
 echo ""
+echo "=== Verifying docker pre/post hook jobs ==="
+if [[ ! -f "$DIR_BASE/copies/webapp.main/.docker-hook-pre.txt" ]]; then
+  echo "Error: missing docker pre-hook output for webapp.main"
+  exit 1
+fi
+if [[ ! -f "$DIR_BASE/copies/webapp.main/.docker-hook-post.txt" ]]; then
+  echo "Error: missing docker post-hook output for webapp.main"
+  exit 1
+fi
+if ! rg -q '^pre:webapp-main$' "$DIR_BASE/copies/webapp.main/.docker-hook-pre.txt"; then
+  echo "Error: docker pre-hook output mismatch for webapp.main"
+  exit 1
+fi
+if ! rg -q '^post:webapp-main$' "$DIR_BASE/copies/webapp.main/.docker-hook-post.txt"; then
+  echo "Error: docker post-hook output mismatch for webapp.main"
+  exit 1
+fi
+if [[ ! -f "$DIR_BASE/copies/webapp.prod.${_expected_latest}/.docker-hook-pre.txt" ]]; then
+  echo "Error: missing docker pre-hook output for latest webapp.prod release"
+  exit 1
+fi
+if [[ ! -f "$DIR_BASE/copies/webapp.prod.${_expected_latest}/.docker-hook-post.txt" ]]; then
+  echo "Error: missing docker post-hook output for latest webapp.prod release"
+  exit 1
+fi
+if ! rg -q '^pre:webapp-prod$' "$DIR_BASE/copies/webapp.prod.${_expected_latest}/.docker-hook-pre.txt"; then
+  echo "Error: docker pre-hook output mismatch for webapp.prod release"
+  exit 1
+fi
+if ! rg -q '^post:webapp-prod$' "$DIR_BASE/copies/webapp.prod.${_expected_latest}/.docker-hook-post.txt"; then
+  echo "Error: docker post-hook output mismatch for webapp.prod release"
+  exit 1
+fi
+echo "  OK: docker pre/post hook jobs executed for branch and release restarts"
+
+echo ""
 echo "=== Verifying BR_WHITELIST / .skipping behavior ==="
 # Whitelisted branches should have copy dir with content and no .skipping when just inited
 _found_whitelisted_ok=0
