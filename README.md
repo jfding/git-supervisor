@@ -2,7 +2,7 @@
 
 ## Contents
 
-- supervisor: central supervisor to control all remote hosts and repos, including a built-in GitHub webhook server (`hook` subcommand)
+- supervisor: central supervisor to control all remote hosts and repos, including a built-in GitHub webhook server (`gh-webhook` subcommand)
 - `src/check-push.sh`: **main** logic of the engine, can be called by web hook or by timer loop
   check-push.sh shell script to have one-shot check.
 
@@ -29,17 +29,17 @@ xattr -c git-supervisor
 
 ### Web hook for github repos
 
-The `hook` subcommand starts a GitHub webhook server (default port `:9870`). It verifies push event signatures and triggers a check-push cycle on all configured hosts.
+The `gh-webhook` subcommand starts a GitHub webhook server (default port `:9870`). It verifies push event signatures and triggers a check-push cycle on all configured hosts.
 
 ```bash
 # Using supervisor config (triggers watch-once on push events)
-/git-supervisor hook --secret MY_SECRET
+/git-supervisor gh-webhook --secret MY_SECRET
 
 # Using an external script (backward-compatible with legacy gh-webhook)
-/git-supervisor hook --secret MY_SECRET --script /scripts/check-push.sh
+/git-supervisor gh-webhook --secret MY_SECRET --script /scripts/check-push.sh
 
 # Custom port; secret from env var
-GITHUB_WEBHOOK_SECRET=MY_SECRET /git-supervisor hook --port 8080
+GITHUB_WEBHOOK_SECRET=MY_SECRET /git-supervisor gh-webhook --port 8080
 ```
 
 It's the default command entry for docker image, will listen on :9870 port.
@@ -104,7 +104,7 @@ The project uses a single source of truth for version: the **`VERSION`** file at
 
 - **Scripts**: Run `check-push.sh --version` / `-V` prints it. In the Docker image, `VERSION` is copied to `/scripts/VERSION`.
 - **gh-webhook** (legacy Python): Reads version from `/scripts/VERSION` at runtime. `GET /version` returns `{"version": "1.0.0"}`; webhook responses include `version` when available.
-- **supervisor** (Rust): Build reads `VERSION` from the repo root and sets the binary version; `supervisor --version` shows it. The `hook` subcommand serves `GET /version` and includes `version` in webhook responses. If `VERSION` is missing, `Cargo.toml` package version is used.
+- **supervisor** (Rust): Build reads `VERSION` from the repo root and sets the binary version; `supervisor --version` shows it. The `gh-webhook` subcommand serves `GET /version` and includes `version` in webhook responses. If `VERSION` is missing, `Cargo.toml` package version is used.
 
 To set the version everywhere (e.g. for a release), run:
 

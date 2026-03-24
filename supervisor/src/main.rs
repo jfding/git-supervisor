@@ -24,7 +24,8 @@ enum Command {
     /// Prepare remotes (create dirs, ensure repos) then run check-push on each host in a loop
     Watch(WatchArgs),
     /// Start a GitHub webhook server that triggers check-push on push events
-    Hook(HookArgs),
+    #[command(name = "gh-webhook")]
+    GhWebhook(HookArgs),
 }
 
 #[derive(clap::Args)]
@@ -79,7 +80,7 @@ fn main() {
             args.ignore_missing,
             args.skip_prepare,
         ),
-        Command::Hook(args) => {
+        Command::GhWebhook(args) => {
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
             rt.block_on(run_hook(
                 config,

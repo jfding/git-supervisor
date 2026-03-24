@@ -27,7 +27,7 @@ services:
             - LOGLEVEL=2
                # default LOGLEVEL 2 means verbose
             - GITHUB_WEBHOOK_SECRET=1234567890
-               # GITHUB_WEBHOOK_SECRET is required to run hook
+               # GITHUB_WEBHOOK_SECRET is required to run gh-webhook
             #- TIMEOUT=120
                # default timeout of possible pending cmd is 120s
             #- SLEEP_TIME=360

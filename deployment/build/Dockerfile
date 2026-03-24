@@ -29,4 +29,4 @@ COPY supervisor/deployments.sample.yaml /scripts/deployments.yaml
 COPY src/check-push.sh /scripts
 COPY VERSION /scripts/VERSION
 
-CMD ["/git-supervisor", "hook", "--script", "/scripts/check-push.sh"]
+CMD ["/git-supervisor", "gh-webhook", "--script", "/scripts/check-push.sh"]
