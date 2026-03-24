@@ -57,6 +57,11 @@ flowchart TD
 
 Logic is implemented in `src/check-push.sh`. Config: `RELEASE_TAG_PATTERN`, `RELEASE_TAG_EXCLUDE_PATTERN`, `RELEASE_TAG_TOPN`, `REPO_WHITELIST`, `BR_WHITELIST`, `BR_WHITELIST_PER_REPO`, `DIR_BASE` → `DIR_REPOS`/`DIR_COPIES`, `CI_LOCK`.
 
+Docker restart supports optional hook job files around restart:
+
+- `*.docker.pre` (runs before `docker restart`)
+- `*.docker.post` (runs after successful `docker restart`)
+
 ## Sequence diagram
 
 ![diagram](./imgs/seqdiagram.png)

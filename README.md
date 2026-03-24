@@ -62,6 +62,24 @@ If want to run a timer loop instead of web-hook, need to:
 
 - **BR_WHITELIST**: Space-separated branch names to track and copy by default (e.g. `main master dev`). Override via env; default in script: `main master dev test alpha`. Whitelisted branches get their copy dir created and populated on first run; other branches are only tracked if a copy dir already exists (and then start with a `.skipping` flag until you remove it).
 
+#### Docker restart pre/post hook jobs
+
+When a copy path has a docker restart config file (`*.docker`), `check-push.sh` can run optional hook jobs around restart:
+
+- **Pre hook**: `*.docker.pre` runs before `docker restart`
+- **Post hook**: `*.docker.post` runs after a successful `docker restart`
+
+Examples:
+
+- Branch copy: `/work/copies/webapp.main.docker` + optional `/work/copies/webapp.main.docker.pre` / `/work/copies/webapp.main.docker.post`
+- Latest release copy: `/work/copies/webapp.prod.docker` + optional `/work/copies/webapp.prod.docker.pre` / `/work/copies/webapp.prod.docker.post`
+
+Hook job scripts are executed with `bash`, from the copy directory as working directory, and receive:
+
+- `DOCKER_HOOK_STAGE` (`pre` or `post`)
+- `DOCKER_NAME` (container name from `*.docker`)
+- `DOCKER_HOOK_FILE` (resolved hook script path)
+
 #### Init working git repos manually (without git-supervisor cli)
 
 In HOST, under the path *<work-volume>/git_repos/*, just use the regular `git clone` the target repos.

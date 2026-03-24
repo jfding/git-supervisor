@@ -267,10 +267,65 @@ function _timeout {
     fi
 }
 
+# run docker restart hook job script if configured
+# args: hook_path stage(pre|post) docker_name work_dir(optional)
+function _run_docker_hook_job {
+  local _hook_path=$1
+  local _stage=$2
+  local _docker_name=$3
+  local _work_dir="${4:-}"
+  local _hook_real
+  local _copies_real
+
+  [[ -f "${_hook_path}" ]] || return 0
+
+  _hook_real=$(realpath "${_hook_path}" 2>/dev/null) || {
+    err "failed to resolve docker ${_stage}-hook path: ${_hook_path}"
+    return 1
+  }
+  _copies_real=$(realpath "${DIR_COPIES}" 2>/dev/null) || {
+    err "failed to resolve DIR_COPIES for docker hook safety check"
+    return 1
+  }
+  case "${_hook_real}/" in
+    "${_copies_real}/"*) ;;
+    *)
+      err "refusing docker ${_stage}-hook outside copies tree: ${_hook_path}"
+      return 1
+      ;;
+  esac
+
+  [[ -r "${_hook_real}" ]] || {
+    err "docker ${_stage}-hook is not readable: ${_hook_real}"
+    return 1
+  }
+
+  highlight "..running docker ${_stage}-hook [ ${_hook_real} ]"
+  (
+    if [[ -n "${_work_dir}" ]]; then
+      cd "${_work_dir}" || {
+        err "failed to cd to hook work dir: ${_work_dir}"
+        exit 1
+      }
+    fi
+    DOCKER_HOOK_STAGE="${_stage}" \
+    DOCKER_NAME="${_docker_name}" \
+    DOCKER_HOOK_FILE="${_hook_real}" \
+      bash "${_hook_real}"
+  ) || {
+    err "docker ${_stage}-hook failed: ${_hook_real}"
+    return 1
+  }
+}
+
 
 function _handle_docker {
     # restart docker instance
     local _docker_path=$1
+    local _work_dir="${2:-}"
+    local _pre_hook_path="${_docker_path}.pre"
+    local _post_hook_path="${_docker_path}.post"
+    local _docker_name
 
     command -v docker >/dev/null || {
       warn "docker cli not found, skip docker restart"
@@ -278,7 +333,7 @@ function _handle_docker {
     }
 
     if [[ -f "${_docker_path}" ]]; then
-      local _docker_name=$(cat "${_docker_path}" | tr -d '\n\r')
+      _docker_name=$(cat "${_docker_path}" | tr -d '\n\r')
 
       # Validate docker name to prevent command injection
       if [[ ! $_docker_name =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
@@ -286,9 +341,15 @@ function _handle_docker {
         return 1
       fi
 
+      _run_docker_hook_job "${_pre_hook_path}" "pre" "${_docker_name}" "${_work_dir}" || return 1
+
       highlight "..restarting docker [ $_docker_name ]"
-      _timeout docker restart "${_docker_name}" > /dev/null || \
+      _timeout docker restart "${_docker_name}" > /dev/null || {
           err "failed to restart docker [ $_docker_name ]"
+          return 1
+      }
+
+      _run_docker_hook_job "${_post_hook_path}" "post" "${_docker_name}" "${_work_dir}" || return 1
       unset _docker_name
     fi
 }
@@ -428,7 +489,7 @@ function checkout_and_copy_br {
     echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
 
     # restart docker instance
-    _handle_docker ${_docker_path}
+    _handle_docker "${_docker_path}" "${_cp_path}"
   fi
 }
 
@@ -513,7 +574,7 @@ function fetch_and_check {
         ln -sf $(basename $_cur_release_path) $_latest_link
 
                 # restart docker instance
-        _handle_docker "${DIR_COPIES}/${_repo}.prod.docker"
+        _handle_docker "${DIR_COPIES}/${_repo}.prod.docker" "${_cur_release_path}"
       else
         debug "..latest release symlink already points to correct path, no update needed"
       fi
