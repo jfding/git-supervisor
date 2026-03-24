@@ -55,8 +55,12 @@ create_test_repo() {
     mkdir -p "$repo_dir"
     cd "$repo_dir"
     
-    # Initialize git repo
-    git init
+    # Initialize git repo on main regardless of global git defaults.
+    # Fallback keeps compatibility with older git versions lacking -b.
+    if ! git init -b main >/dev/null 2>&1; then
+        git init
+        git checkout -b main
+    fi
     git config user.name "Test User"
     git config user.email "test@example.com"
     

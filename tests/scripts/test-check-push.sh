@@ -46,7 +46,19 @@ echo "Running check-push.sh..."
 echo ""
 
 # Run the script (BR_WHITELIST from env when run via launch-testing.sh / test-config.sh)
-bash "$CHECK_PUSH_SCRIPT" --once
+# Use a local fake docker binary so docker restart hooks are testable on any host.
+FAKE_DOCKER_DIR="$DIR_BASE/.fake-bin"
+mkdir -p "$FAKE_DOCKER_DIR"
+cat > "$FAKE_DOCKER_DIR/docker" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "restart" ]]; then
+  exit 0
+fi
+exit 0
+EOF
+chmod +x "$FAKE_DOCKER_DIR/docker"
+
+PATH="$FAKE_DOCKER_DIR:$PATH" bash "$CHECK_PUSH_SCRIPT" --once
 
 echo ""
 echo "=== Verifying release tag ordering ==="
