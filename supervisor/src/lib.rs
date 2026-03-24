@@ -4,10 +4,12 @@ use std::time::{Duration, Instant};
 
 pub mod config;
 pub mod console;
+pub mod hook;
 pub mod ops;
 pub mod ssh;
 
 pub use config::{CentralConfig, Defaults, Host, Repo};
+pub use hook::run_hook;
 
 /// Embedded check-push.sh script, run on remote with sandbox env.
 const CHECK_PUSH_SCRIPT: &str = include_str!("../embed/check-push.sh");

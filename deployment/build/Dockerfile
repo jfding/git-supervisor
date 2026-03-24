@@ -20,17 +20,13 @@ RUN apt-get update && \
     xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Webhook: install deps and copy script (no wheel build)
-RUN pip install --no-cache-dir "flask>=3.0.3"
-RUN mkdir -p /scripts /webhook
-COPY gh-webhook/hook.py /webhook/hook.py
-
 # Copy supervisor binary from build stage
 COPY --from=rust-builder /build/target/release/git-supervisor /git-supervisor
 RUN chmod +x /git-supervisor
 
+WORKDIR /scripts
+COPY supervisor/deployments.sample.yaml /scripts/deployments.yaml
 COPY src/check-push.sh /scripts
 COPY VERSION /scripts/VERSION
 
-WORKDIR /webhook
-CMD ["python3", "/webhook/hook.py"]
+CMD ["/git-supervisor", "hook", "--script", "/scripts/check-push.sh"]

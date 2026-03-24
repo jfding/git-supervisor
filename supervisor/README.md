@@ -54,11 +54,15 @@ supervisor check [CONFIG]
 
 # Prepare remotes (create dirs, ensure repos) then run check-push on each host in a loop
 supervisor watch [CONFIG] [--interval SECS] [--timeout SECS] [-I | --ignore-missing]
+
+# Start GitHub webhook server that triggers check-push on push events
+supervisor hook [CONFIG] --secret SECRET [--port PORT] [--script PATH]
 ```
 
 - Config is an optional argument to each subcommand; default: `deployments.yaml`.
 - **check**: load and validate the config, then for each host verify SSH/git is available and that each configured repo directory exists under `dir_repos` with a `.git` directory.
 - **watch**: first prepares each remote (create dirs, init empty repos by cloning when missing unless `-I`/`--ignore-missing`), then repeatedly runs the check-push script on each host; `--interval` (default 120) seconds between rounds, optional `--timeout` to stop after SECS seconds, `-I`/`--ignore-missing` to skip cloning (only create dirs; missing repos are ignored). Run until Ctrl+C if no timeout.
+- **hook**: starts an HTTP server (default port `9870`) that listens for GitHub webhook push events. Verifies `X-Hub-Signature-256` using the provided `--secret` (or `GITHUB_WEBHOOK_SECRET` env var). On push events, runs a one-shot watch cycle on all configured hosts (equivalent to `watch --interval 0 --skip-prepare`). Use `--script PATH` to run an external script instead (e.g. `/scripts/check-push.sh`). Endpoints: `GET /version` returns the app version; `POST /webhook` handles GitHub events.
 - Remotes must have **SSH** access (key-based) and **git** installed. The supervisor only creates `dir_repos`/`dir_copies` and ensures each listed repo is cloned or fetched; it does not push any daemon config or start the daemon.
 
 ## Integration test (optional)
