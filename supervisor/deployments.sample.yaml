@@ -14,7 +14,7 @@ repos:
     git_url: git@github.com:org/webapp.git
 
 hosts:
-  # Local testing (e.g. ssh localhost)
+  # Local testing: localhost targets run directly (no local SSH daemon needed)
   local:
     ssh_target: localhost
     repos: []
