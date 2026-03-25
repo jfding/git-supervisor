@@ -30,7 +30,7 @@ set -o pipefail
 # Need only handle top-N releases only (0 means all, default is 4)
 : "${RELEASE_TAG_TOPN:=4}"
 
-BASHPID=$(echo $$ | tr -d '\n')
+MAIN_PID=$(echo $$ | tr -d '\n')
 
 function _color_enabled {
     [[ -n "${NO_COLOR:-}" ]] && return 1
@@ -59,7 +59,7 @@ function _logging {
     local _level=$1; shift
     local _color=${1:-}; shift
     local _prefix=$(/bin/date '+%m-%d %H:%M:%S>')
-    if [ $_level -le $LOGLEVEL ]; then
+    if [ "$_level" -le "$LOGLEVEL" ]; then
       local _message="$*"
       local _line
       [[ -n ${HOST_ID:-} ]] && _prefix="${_prefix} {${HOST_ID}}"
@@ -98,7 +98,7 @@ function warn {
 # True if $1 is unsafe for repo/branch/tag path segments (.., /, or \).
 # Pattern is held in a variable so | is not parsed as a shell operator inside [[ =~ ]].
 function _unsafe_path_segment {
-  local _unsafe_ere='\.\. |/|\\'
+  local _unsafe_ere='\.\.|/|\\'
   [[ "$1" =~ $_unsafe_ere ]]
 }
 
@@ -249,7 +249,7 @@ function get_release_tags {
   _tags=$(printf '%s\n' "${_tags}" | grep -v '^[[:space:]]*$' | sort_version_tags_desc)
 
   # get topN only
-  [[ $_topn -gt 0 ]] && _tags=$(echo "${_tags}" | head -n $_topn)
+  [[ $_topn -gt 0 ]] && _tags=$(echo "${_tags}" | head -n "$_topn")
 
   echo "${_tags}"
 }
@@ -282,7 +282,7 @@ function acquire_lock {
   # max waiting times will be 100
   for _i in {1..100}; do
     if mkdir "$_lock_path" 2>/dev/null; then
-      echo "${BASHPID}" > "${_lock_path}/owner.pid"
+      echo "${MAIN_PID}" > "${_lock_path}/owner.pid"
       return 0
     fi
     sleep 1
@@ -297,7 +297,7 @@ function release_lock {
 
   [[ -d "${_lock_path}" ]] || return 0
   [[ -f "${_owner_file}" ]] || return 0
-  [[ $(cat "${_owner_file}") == "${BASHPID}" ]] || return 0
+  [[ $(cat "${_owner_file}") == "${MAIN_PID}" ]] || return 0
 
   rm -f "${_owner_file}"
   rmdir "${_lock_path}" 2>/dev/null || true
@@ -307,7 +307,7 @@ trap 'release_lock "${CI_LOCK}"' EXIT INT TERM
 
 function _timeout {
     if command -v timeout &>/dev/null; then
-        timeout $TIMEOUT "$@"
+        timeout "$TIMEOUT" "$@"
     else
         "$@"
     fi
@@ -420,12 +420,12 @@ function checkout_and_copy_tag {
   local _cp_path="${DIR_COPIES}/${_repo}.prod.${_tag}"
 
   # if path exists, skip but consider successful
-  [[ -d $_cp_path ]] && return
+  [[ -d "$_cp_path" ]] && return
 
   # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
   highlight "..copying files for new RELEASE [ $_tag ]"
-  mkdir -p $_cp_path &&
-    _git_checkout_ref_to $_tag $_cp_path || {
+  mkdir -p "$_cp_path" &&
+    _git_checkout_ref_to "$_tag" "$_cp_path" || {
       _safe_rm_rf_copies "${_cp_path}" || true
       err "failed to copy files for new RELEASE [ $_tag ]"
       return 1
@@ -470,15 +470,15 @@ function checkout_and_copy_br {
 
   # current commit at origin (no checkout in repo, ref unchanged)
   local _origin_ref
-  _origin_ref=$(git rev-parse origin/$_br 2>/dev/null) || {
+  _origin_ref=$(git rev-parse "origin/$_br" 2>/dev/null) || {
     warn "..no origin/$_br, skip"
     return
   }
 
   # initial copy when dir is empty
-  if [[ -z $(/bin/ls -A $_cp_path 2>/dev/null) ]]; then
+  if [[ -z $(/bin/ls -A "$_cp_path" 2>/dev/null) ]]; then
     highlight "..copying files for [ $_br ]"
-    _git_checkout_ref_to origin/$_br $_cp_path || {
+    _git_checkout_ref_to "origin/$_br" "$_cp_path" || {
       err "failed to copy files for [ $_br ]"
       return 1
     }
@@ -508,11 +508,11 @@ function checkout_and_copy_br {
   _need_update=1
 
   # only refresh when copy dir already has content (initial copy is handled above)
-  if [[ $_need_update -eq 1 ]] && [[ -n $(/bin/ls -A $_cp_path 2>/dev/null) ]]; then
+  if [[ $_need_update -eq 1 ]] && [[ -n $(/bin/ls -A "$_cp_path" 2>/dev/null) ]]; then
     highlight "..UPDATING branch [ $_br ]"
     if [[ -f "${_cp_path}/.no-cleanup" ]]; then
       # overwrite only, do not remove extra files
-      _git_checkout_ref_to origin/$_br $_cp_path || {
+      _git_checkout_ref_to "origin/$_br" "$_cp_path" || {
         err "failed to copy files for [ $_br ]"
         return 1
       }
@@ -542,7 +542,7 @@ function fetch_and_check {
 
   _br_whitelist=$(get_branches_for_repo "$_repo")
 
-  cd $_repo || { err "failed to cd to $_repo, critical issue, skip"; return 1; }
+  cd "$_repo" || { err "failed to cd to $_repo, critical issue, skip"; return 1; }
 
   # clean up trash file from last time crash
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
@@ -572,7 +572,7 @@ function fetch_and_check {
     if [[ $_br_whitelist =~ (^|[[:space:]])$_br($|[[:space:]]) ]] || \
        [[ -d "${DIR_COPIES}/${_repo}.${_br}" ]]; then
 
-        checkout_and_copy_br $_repo $_br "$_br_whitelist" || continue
+        checkout_and_copy_br "$_repo" "$_br" "$_br_whitelist" || continue
 
         # heart beat
         touch "${DIR_COPIES}/${_repo}.${_br}/.living"
@@ -592,22 +592,22 @@ function fetch_and_check {
       continue
     fi
 
-    checkout_and_copy_tag $_repo $_release || continue
+    checkout_and_copy_tag "$_repo" "$_release" || continue
 
     # update latest version path symlink
     if [[ $_release == $_latest_release ]]; then
       local _latest_link="${DIR_COPIES}/${_repo}.prod.latest"
-      local _latest_path=${DIR_COPIES}/$(readlink $_latest_link 2>/dev/null || echo "")
+      local _latest_path="${DIR_COPIES}/$(readlink $_latest_link 2>/dev/null || echo '')"
       local _cur_release_path="${DIR_COPIES}/${_repo}.prod.${_release}"
 
       # Only perform symlink update and associated actions if the path actually differs
       if [[ $_latest_path != $_cur_release_path ]]; then
         highlight "..linking latest release to [ $_release ]"
 
-        rm -f $_latest_link
-        ln -sf $(basename $_cur_release_path) $_latest_link
+        rm -f "$_latest_link"
+        ln -sf $(basename "$_cur_release_path") "$_latest_link"
 
-                # restart docker instance
+        # restart docker instance
         _handle_docker "${DIR_COPIES}/${_repo}.prod.docker" "${_cur_release_path}"
       else
         debug "..latest release symlink already points to correct path, no update needed"
@@ -621,10 +621,10 @@ function fetch_and_check {
   done
 
   # clean up deprected dirs in "work/copies"
-  for _bp in $(/bin/ls -d ${DIR_COPIES}/${_repo}.*/); do
+  for _bp in $(/bin/ls -d "${DIR_COPIES}/${_repo}".*/); do
 
-      (echo $_bp | grep -q to-be-removed) && continue
-      (echo $_bp | grep -q .latest) && continue
+      (echo "$_bp" | grep -q to-be-removed) && continue
+      (echo "$_bp" | grep -qF .latest) && continue
 
       _bp=${_bp%/}
 
@@ -655,7 +655,7 @@ function main_loop {
   local _worker_pid
   local _worker_failed=0
 
-  cd $DIR_REPOS || {
+  cd "$DIR_REPOS" || {
     err "failed to cd to DIR_REPOS: $DIR_REPOS, critical issue, abort"
     exit 1
   }
@@ -710,7 +710,7 @@ function main_loop {
     [[ $SLEEP_TIME == "" ]] || [[ $SLEEP_TIME == "0" ]] && exit 0
 
     info "waiting for next check ..."
-    sleep $SLEEP_TIME
+    sleep "$SLEEP_TIME"
   done
 }
 
@@ -738,7 +738,7 @@ command -v docker >/dev/null || warn "docker cli not found, will skip docker res
 ## check and init all working dirs
 # 1. check the DIR_BASE is available (sanitize&check at the time)
 _ORIG_DIR_BASE=$DIR_BASE
-DIR_BASE=$(realpath $DIR_BASE 2>/dev/null) || {
+DIR_BASE=$(realpath "$DIR_BASE" 2>/dev/null) || {
   err "base working dir not found: $_ORIG_DIR_BASE"
   exit 1
 }
@@ -747,11 +747,11 @@ DIR_REPOS=${DIR_BASE}/git_repos
 DIR_COPIES=${DIR_BASE}/copies
 
 # 2. DIR_BASE/copies is writable
-[[ -d $DIR_COPIES ]] || mkdir -p $DIR_COPIES || { err "failed to create COPIES dir: $DIR_COPIES"; exit 1; }
-[[ -w $DIR_COPIES ]] ||                         { err "COPIES dir not writable: $DIR_COPIES"; exit 1; }
+[[ -d "$DIR_COPIES" ]] || mkdir -p "$DIR_COPIES" || { err "failed to create COPIES dir: $DIR_COPIES"; exit 1; }
+[[ -w "$DIR_COPIES" ]] ||                           { err "COPIES dir not writable: $DIR_COPIES"; exit 1; }
 
 # 3. init repo dir
-[[ -d $DIR_REPOS ]] || mkdir -p $DIR_REPOS
+[[ -d "$DIR_REPOS" ]] || mkdir -p "$DIR_REPOS"
 
 if [[ "${1:-}" == "--once" ]]; then
   main_loop once
