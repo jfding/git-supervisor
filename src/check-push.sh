@@ -566,8 +566,7 @@ function fetch_and_check {
   # get list via git for-each-ref, remove 'origin/' prefix, skip HEAD and symbolic refs
   for _br in $(git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin); do
     # filters
-    [[ $_br = 'HEAD' ]] && continue
-    (echo "$_br" | grep -q '/') && continue
+    [[ "$_br" == 'HEAD' || "$_br" == */* ]] && continue
 
     if _unsafe_path_segment "$_br"; then
       warn "Skipping invalid branch name [$_br], possible path traversal attempt"
@@ -629,8 +628,8 @@ function fetch_and_check {
   # clean up deprected dirs in "work/copies"
   for _bp in $(/bin/ls -d "${DIR_COPIES}/${_repo}".*/); do
 
-      (echo "$_bp" | grep -q to-be-removed) && continue
-      (echo "$_bp" | grep -qF .latest) && continue
+      [[ "$_bp" == *to-be-removed* ]] && continue
+      [[ "$_bp" == *.latest* ]] && continue
 
       _bp=${_bp%/}
 
