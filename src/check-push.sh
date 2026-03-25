@@ -86,7 +86,7 @@ function verbose {
     _logging 2 "grey" "$@"
 }
 function debug {
-    _logging 2 "blue" "$@"
+    _logging 3 "blue" "$@"
 }
 function err {
   _logging 0 red "ERROR: $*"
@@ -414,7 +414,7 @@ function checkout_and_copy_br {
 
   # checking flags
   if [[ -f "${_cp_path}/.debugging" ]]; then
-    debug "..skip debugging work copy of branch [ $_br ]"
+    highlight "..skip debugging work copy of branch [ $_br ]"
     return
   fi
   if [[ -f "${_cp_path}/.skipping" ]]; then
@@ -446,7 +446,7 @@ function checkout_and_copy_br {
   # add a debug trigger
   if [[ -f "${_cp_path}/.trigger" ]]; then
     rm -f "${_cp_path}/.trigger" # burn after reading
-    debug "..having a debug try"
+    highlight "..having a debug trigger, force update"
     _need_update=1
   fi
 
