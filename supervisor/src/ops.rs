@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use std::collections::BTreeSet;
 use std::path::Path;
+use std::process::Command;
 
 use crate::config::{Host, Repo};
 use crate::console::{self, Color};
@@ -58,10 +60,8 @@ pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: b
             &format!("    New repo [{}]: ", repo.name),
             Some(Color::Green),
         );
-        let existing_repo_line = console::shell_printf(
-            &format!("    Existing repo [{}]: (ready)", repo.name),
-            None
-        );
+        let existing_repo_line =
+            console::shell_printf(&format!("    Existing repo [{}]: (ready)", repo.name), None);
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
@@ -170,6 +170,42 @@ pub fn run_check_push_remote(
         .context("run check-push on remote failed")
 }
 
+/// Query remote refs for a repo URL and return a stable fingerprint string.
+///
+/// Uses `git ls-remote --heads --tags --refs <url>` so the supervisor can
+/// detect upstream changes without maintaining local clones.
+pub fn remote_refs_fingerprint(repo_url: &str) -> Result<String> {
+    let output = Command::new("git")
+        .arg("ls-remote")
+        .arg("--heads")
+        .arg("--tags")
+        .arg("--refs")
+        .arg(repo_url)
+        .output()
+        .with_context(|| format!("failed to run git ls-remote for {}", repo_url))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        anyhow::bail!(
+            "git ls-remote failed for {}: {}",
+            repo_url,
+            if stderr.is_empty() {
+                format!("exit {}", output.status)
+            } else {
+                stderr
+            }
+        );
+    }
+
+    // Normalize refs so a textual compare between rounds is deterministic.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines: BTreeSet<String> = BTreeSet::new();
+    for line in stdout.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        lines.insert(line.to_string());
+    }
+    Ok(lines.into_iter().collect::<Vec<_>>().join("\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,5 +266,22 @@ mod tests {
             "extra env should include LOGLEVEL=1, got: {:?}",
             extra
         );
+    }
+
+    #[test]
+    fn remote_refs_fingerprint_is_stable_with_reordered_lines() {
+        // Mimic two ls-remote outputs with different line order and trailing spaces.
+        let a = "bbbb\trefs/heads/dev\naaaa\trefs/heads/main\n";
+        let b = "aaaa\trefs/heads/main\nbbbb\trefs/heads/dev   \n";
+
+        let normalize = |s: &str| {
+            let mut lines: BTreeSet<String> = BTreeSet::new();
+            for line in s.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                lines.insert(line.to_string());
+            }
+            lines.into_iter().collect::<Vec<_>>().join("\n")
+        };
+
+        assert_eq!(normalize(a), normalize(b));
     }
 }
