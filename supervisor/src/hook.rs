@@ -108,10 +108,8 @@ async fn run_script_handler(state: &Arc<HookState>) -> (StatusCode, Json<Value>)
 
 async fn run_watch_handler(state: &Arc<HookState>) -> (StatusCode, Json<Value>) {
     let config = state.config.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        crate::run_watch(&config, 0, None, false, true)
-    })
-    .await;
+    let result =
+        tokio::task::spawn_blocking(move || crate::run_watch(&config, 0, None, false, true)).await;
 
     match result {
         Ok(Ok(())) => {
@@ -160,9 +158,7 @@ pub async fn run_hook(
         .await
         .context("failed to bind address")?;
 
-    axum::serve(listener, app)
-        .await
-        .context("server error")?;
+    axum::serve(listener, app).await.context("server error")?;
 
     Ok(())
 }
