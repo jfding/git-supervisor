@@ -523,7 +523,7 @@ function checkout_and_copy_br {
     echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
 
     # restart docker instance
-    _handle_docker "${_docker_path}" "${_cp_path}"
+    _handle_docker "${_docker_path}" "${_cp_path}" || err "WARNING: failed to restart docker instance for [ $_br ], ignoring"
   fi
 }
 
@@ -608,7 +608,7 @@ function fetch_and_check {
         ln -sf $(basename "$_cur_release_path") "$_latest_link"
 
         # restart docker instance
-        _handle_docker "${DIR_COPIES}/${_repo}.prod.docker" "${_cur_release_path}"
+        _handle_docker "${DIR_COPIES}/${_repo}.prod.docker" "${_cur_release_path}" || err "WARNING: failed to restart docker instance for [ $_release ], ignoring"
       else
         debug "..latest release symlink already points to correct path, no update needed"
       fi
