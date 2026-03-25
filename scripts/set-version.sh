@@ -17,6 +17,7 @@ fi
 root=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)
 echo "$v" > "$root/VERSION"
 sed -i.bak -E "s/^version = \".+\"/version = \"$v\"/" "$root/supervisor/Cargo.toml" && rm -f "$root/supervisor/Cargo.toml.bak"
+
 # Update version in deployment/docker-compose/compose.yml (image tag)
 compose_yml="$root/deployment/docker-compose/compose.yml"
 if [[ -f "$compose_yml" ]]; then
@@ -24,5 +25,8 @@ if [[ -f "$compose_yml" ]]; then
 else
   echo "Warning: $compose_yml not found, skipping docker-compose version update" >&2
 fi
+
+# trigger version update in Cargo.lock
+cd "$root/supervisor" && cargo update --package git-supervisor --precise "$v"
 
 echo "Version set to $v in VERSION, supervisor/Cargo.toml, and reference (docker)compose.yml"

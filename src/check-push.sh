@@ -162,21 +162,19 @@ function _full_refresh_checkout_branch_into_dir {
     err "failed to copy files for [ ${_br} ]"; return 1
   }
 
-  local _f
-  for _f in .no-cleanup .living .skipping .debugging; do
-    [[ -e "${_cp_path}/${_f}" ]] && cp -p "${_cp_path}/${_f}" "${_staging}/"
-  done
-
-  # Swap: clean destination contents, move staging contents in.
+  # Swap: clean destination contents (keeping dot-files), move staging contents in.
   local _fail=0
   shopt -s dotglob nullglob
 
-  local _old=("${_cp_path}/"*)
-  (( ${#_old[@]} > 0 )) && { rm -rf -- "${_old[@]}" || _fail=1; }
+  local _e
+  for _e in "${_cp_path}/"*; do
+    [[ -f "$_e" && "$(basename "$_e")" == .* ]] && continue
+    rm -rf -- "$_e" || { _fail=1; break; }
+  done
 
   if (( ! _fail )); then
     local _new=("${_staging}"/*)
-    (( ${#_new[@]} > 0 )) && { mv -- "${_new[@]}" "${_cp_path}/" || _fail=1; }
+    (( ${#_new[@]} > 0 )) && { mv -f -- "${_new[@]}" "${_cp_path}/" || _fail=1; }
   fi
 
   shopt -u dotglob nullglob
@@ -529,7 +527,8 @@ function checkout_and_copy_br {
     echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
 
     # restart docker instance
-    _handle_docker "${_docker_path}" "${_cp_path}" || err "WARNING: failed to restart docker instance for [ $_br ], ignoring"
+    _handle_docker "${_docker_path}" "${_cp_path}" || \
+      err "WARNING: failed to restart docker instance for [ $_br ], ignoring"
   fi
 }
 
@@ -613,7 +612,8 @@ function fetch_and_check {
         ln -sf $(basename "$_cur_release_path") "$_latest_link"
 
         # restart docker instance
-        _handle_docker "${DIR_COPIES}/${_repo}.prod.docker" "${_cur_release_path}" || err "WARNING: failed to restart docker instance for [ $_release ], ignoring"
+        _handle_docker "${DIR_COPIES}/${_repo}.prod.docker" "${_cur_release_path}" || \
+          err "WARNING: failed to restart docker instance for [ $_release ], ignoring"
       else
         debug "..latest release symlink already points to correct path, no update needed"
       fi
@@ -636,7 +636,10 @@ function fetch_and_check {
       # manually marked as deprecated
       if [ -f "${_bp}/.stopping" ]; then
         # clean up all content
-        _safe_rm_rf_copies "${_bp}" || { err "failed to remove deprecated dir ${_bp}"; continue; }
+        _safe_rm_rf_copies "${_bp}" || {
+          err "failed to remove deprecated dir ${_bp}"
+          continue
+        }
         mkdir -p "${_bp}"
         touch "${_bp}/.skipping"
         touch "${_bp}/.living"
