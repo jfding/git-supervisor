@@ -123,6 +123,10 @@ function _safe_rm_rf_copies {
     _resolved=$(cd "${_parent}" && pwd -P)/$(basename -- "${_target}")
   fi
 
+  if [[ "${_resolved}" == "${_base}" ]]; then
+    err "refusing rm -rf of copies root itself: ${_target}"
+    return 1
+  fi
   case "${_resolved}/" in
     "${_base}/"*) ;;
     *)
@@ -510,6 +514,7 @@ function checkout_and_copy_br {
   # only refresh when copy dir already has content (initial copy is handled above)
   if [[ $_need_update -eq 1 ]] && [[ -n $(/bin/ls -A "$_cp_path" 2>/dev/null) ]]; then
     highlight "..UPDATING branch [ $_br ]"
+
     if [[ -f "${_cp_path}/.no-cleanup" ]]; then
       # overwrite only, do not remove extra files
       _git_checkout_ref_to "origin/$_br" "$_cp_path" || {
@@ -520,6 +525,7 @@ function checkout_and_copy_br {
       # full refresh: extract to new dir, preserve flags, then mv into place
       _full_refresh_checkout_branch_into_dir "$_br" "$_cp_path" || return 1
     fi
+
     echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
 
     # restart docker instance
@@ -643,7 +649,7 @@ function fetch_and_check {
         debug "..cleaning up deprecated dir: ${_bp}"
         #rm -rf $_bp
         #rm -f ${_bp}.*
-        mv "$_bp" "${_bp}.to-be-removed"
+        [[ ! -d "${_bp}.to-be-removed" ]] && mv "$_bp" "${_bp}.to-be-removed"
       fi
   done
 
