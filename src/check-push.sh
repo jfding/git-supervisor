@@ -134,6 +134,52 @@ function _safe_rm_rf_copies {
   rm -rf -- "${_target}"
 }
 
+# Full refresh: checkout into staging dir, preserve flag files,
+# clean destination contents, move staging contents in, remove staging.
+# actually, to replace the old 'rsync --delete' operation.
+function _full_refresh_checkout_branch_into_dir {
+  local _br=$1 _cp_path=$2
+
+  # Validate destination is under DIR_COPIES tree before any work.
+  local _base _resolved
+  _base=$(cd "${DIR_COPIES:?}" && pwd -P) || return 1
+  _resolved=$(cd "${_cp_path}" 2>/dev/null && pwd -P) || {
+    err "cannot resolve path: ${_cp_path}"; return 1
+  }
+  case "${_resolved}/" in
+    "${_base}/"*) ;;
+    *) err "refusing clean outside copies tree: ${_cp_path}"; return 1 ;;
+  esac
+
+  local _staging="${_cp_path}.staging.$$"
+  mkdir -p "$_staging" || return 1
+  _git_checkout_ref_to "origin/$_br" "$_staging" || {
+    _safe_rm_rf_copies "${_staging}" || true
+    err "failed to copy files for [ ${_br} ]"; return 1
+  }
+
+  local _f
+  for _f in .no-cleanup .living .skipping .debugging; do
+    [[ -e "${_cp_path}/${_f}" ]] && cp -p "${_cp_path}/${_f}" "${_staging}/"
+  done
+
+  # Swap: clean destination contents, move staging contents in.
+  local _fail=0
+  shopt -s dotglob nullglob
+
+  local _old=("${_cp_path}/"*)
+  (( ${#_old[@]} > 0 )) && { rm -rf -- "${_old[@]}" || _fail=1; }
+
+  if (( ! _fail )); then
+    local _new=("${_staging}"/*)
+    (( ${#_new[@]} > 0 )) && { mv -- "${_new[@]}" "${_cp_path}/" || _fail=1; }
+  fi
+
+  shopt -u dotglob nullglob
+  _safe_rm_rf_copies "${_staging}" || true
+  return $_fail
+}
+
 # Sort version-like tags in descending order
 # Tag components are split on '.' and 'Q'; empty segments are treated as 0.
 function sort_version_tags_desc {
@@ -472,19 +518,7 @@ function checkout_and_copy_br {
       }
     else
       # full refresh: extract to new dir, preserve flags, then mv into place
-      local _staging="${_cp_path}.staging.$$"
-      mkdir -p "$_staging"
-      _git_checkout_ref_to origin/$_br "$_staging" || {
-        _safe_rm_rf_copies "${_staging}" || true
-        err "failed to copy files for [ $_br ]"
-        return 1
-      }
-
-      for _f in .no-cleanup .living .skipping .debugging; do
-        [[ -e "${_cp_path}/${_f}" ]] && cp -p "${_cp_path}/${_f}" "${_staging}/"
-      done
-      _safe_rm_rf_copies "${_cp_path}" || return 1
-      mv "${_staging}" "${_cp_path}"
+      _full_refresh_checkout_branch_into_dir "$_br" "$_cp_path" || return 1
     fi
     echo -n "$_origin_ref" > "${_cp_path}/.git-rev"
 
