@@ -233,6 +233,143 @@ fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyho
     }
 }
 
+/// Run one deployment cycle.
+///
+/// When `skip_poll` is true (webhook trigger), skip `git ls-remote` polling
+/// and run check-push on all hosts. When false (timer trigger), poll and only
+/// run hosts with changed repos.
+fn run_cycle(
+    config: &CentralConfig,
+    last_remote_refs: &mut HashMap<String, String>,
+    round: u64,
+    first_round: bool,
+    skip_poll: bool,
+) {
+    let (changed_repos, failed_repos) = if skip_poll {
+        eprintln!(
+            "{}",
+            console::info(format!(
+                "watch round {} [webhook] (hosts: {})",
+                round,
+                config.hosts.len()
+            ))
+        );
+        eprintln!(
+            "{}",
+            console::info("watch: webhook triggered, running remote check-push for all hosts")
+        );
+        (HashSet::new(), HashSet::new())
+    } else {
+        let (changed, failed) = poll_changed_repos(config, last_remote_refs);
+        eprintln!(
+            "{}",
+            console::info(format!(
+                "watch round {} (hosts: {})",
+                round,
+                config.hosts.len()
+            ))
+        );
+        if !first_round {
+            if changed.is_empty() {
+                eprintln!(
+                    "{}",
+                    console::info("watch: no upstream repo changes detected in this round")
+                );
+            } else {
+                let mut changed_sorted: Vec<_> = changed.iter().cloned().collect();
+                changed_sorted.sort();
+                eprintln!(
+                    "{}",
+                    console::info(format!(
+                        "watch: upstream repo change detected: {}",
+                        changed_sorted.join(", ")
+                    ))
+                );
+            }
+        } else {
+            eprintln!(
+                "{}",
+                console::info("watch: initial round, running remote check-push for all hosts")
+            );
+        }
+        (changed, failed)
+    };
+
+    std::thread::scope(|s| {
+        for (host_id, host) in &config.hosts {
+            let host_id = host_id.clone();
+            let dir_base = config.dir_base_for_host(&host_id).clone();
+            let host_repo_names: Vec<String> = config
+                .repos_for_host(&host_id)
+                .into_iter()
+                .map(|r| r.name)
+                .collect();
+            let (repo_whitelist, br_whitelist_per_host) =
+                whitelists_from_config(config, &host_id);
+            let check_push_env = ops::CheckPushEnv {
+                repo_whitelist,
+                repo_branches: br_whitelist_per_host,
+                log_level: config.defaults.as_ref().and_then(|d| d.log_level),
+                release_tag_topn: host.release_count,
+                release_tag_pattern: host.release_tag_pattern.clone(),
+                release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
+            };
+
+            // Webhook-triggered cycles always run all hosts
+            let should_run_remote = if skip_poll {
+                true
+            } else {
+                let has_changed_repo = host_repo_names
+                    .iter()
+                    .any(|repo| changed_repos.contains(repo));
+                let has_probe_failure = host_repo_names
+                    .iter()
+                    .any(|repo| failed_repos.contains(repo));
+                let should_run = should_run_host_remote(
+                    first_round,
+                    &host_repo_names,
+                    &changed_repos,
+                    &failed_repos,
+                );
+                if !should_run {
+                    eprintln!(
+                        "{}",
+                        console::info(format!(
+                            "watch: skip host {{{}}} (no remote repo changes)",
+                            host_id
+                        ))
+                    );
+                }
+                if has_probe_failure && !first_round && !has_changed_repo && should_run {
+                    eprintln!(
+                        "{}",
+                        console::warning(format!(
+                            "watch: host {{{}}} has probe failures, running remote check-push defensively",
+                            host_id
+                        ))
+                    );
+                }
+                should_run
+            };
+
+            if !should_run_remote {
+                continue;
+            }
+            s.spawn(move || {
+                if let Err(e) = ops::run_check_push_remote(
+                    host,
+                    &host_id,
+                    &dir_base,
+                    CHECK_PUSH_SCRIPT,
+                    &check_push_env,
+                ) {
+                    eprintln!("{}", console::error(format!("Error: {}: {}", host_id, e)));
+                }
+            });
+        }
+    });
+}
+
 /// Prepare remotes (create dirs, init empty repos unless --ignore-missing), then run check-push on each host in a loop.
 /// Sleeps `interval_secs` between rounds. If `timeout_secs` is Some, stops after that many seconds.
 pub fn run_watch(
@@ -250,8 +387,6 @@ pub fn run_watch(
     let mut round: u64 = 0;
     let mut last_remote_refs: HashMap<String, String> = HashMap::new();
 
-    // prepare remote hosts and repos: check the necessary command and dirs
-    // and check the readiness of all remote repos
     if !skip_prepare {
         run_prepare(config, ignore_missing)?;
     }
@@ -259,104 +394,8 @@ pub fn run_watch(
     loop {
         round += 1;
         let first_round = round == 1;
-        let (changed_repos, failed_repos) = poll_changed_repos(config, &mut last_remote_refs);
-        eprintln!(
-            "{}",
-            console::info(format!(
-                "watch round {} (hosts: {})",
-                round,
-                config.hosts.len()
-            ))
-        );
-        if !first_round {
-            if changed_repos.is_empty() {
-                eprintln!(
-                    "{}",
-                    console::info("watch: no upstream repo changes detected in this round")
-                );
-            } else {
-                let mut changed_sorted: Vec<_> = changed_repos.iter().cloned().collect();
-                changed_sorted.sort();
-                eprintln!(
-                    "{}",
-                    console::info(format!(
-                        "watch: upstream repo change detected: {}",
-                        changed_sorted.join(", ")
-                    ))
-                );
-            }
-        } else {
-            eprintln!(
-                "{}",
-                console::info("watch: initial round, running remote check-push for all hosts")
-            );
-        }
 
-        std::thread::scope(|s| {
-            for (host_id, host) in &config.hosts {
-                let host_id = host_id.clone();
-                let dir_base = config.dir_base_for_host(&host_id).clone();
-                let host_repo_names: Vec<String> = config
-                    .repos_for_host(&host_id)
-                    .into_iter()
-                    .map(|r| r.name)
-                    .collect();
-                let (repo_whitelist, br_whitelist_per_host) =
-                    whitelists_from_config(config, &host_id);
-                let check_push_env = ops::CheckPushEnv {
-                    repo_whitelist,
-                    repo_branches: br_whitelist_per_host,
-                    log_level: config.defaults.as_ref().and_then(|d| d.log_level),
-                    release_tag_topn: host.release_count,
-                    release_tag_pattern: host.release_tag_pattern.clone(),
-                    release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
-                };
-
-                let has_changed_repo = host_repo_names
-                    .iter()
-                    .any(|repo| changed_repos.contains(repo));
-                let has_probe_failure = host_repo_names
-                    .iter()
-                    .any(|repo| failed_repos.contains(repo));
-                let should_run_remote = should_run_host_remote(
-                    first_round,
-                    &host_repo_names,
-                    &changed_repos,
-                    &failed_repos,
-                );
-
-                if !should_run_remote {
-                    eprintln!(
-                        "{}",
-                        console::info(format!(
-                            "watch: skip host {{{}}} (no remote repo changes)",
-                            host_id
-                        ))
-                    );
-                    continue;
-                }
-                if has_probe_failure && !first_round && !has_changed_repo {
-                    eprintln!(
-                        "{}",
-                        console::warning(format!(
-                            "watch: host {{{}}} has probe failures, running remote check-push defensively",
-                            host_id
-                        ))
-                    );
-                }
-                s.spawn(move || {
-                    if let Err(e) = ops::run_check_push_remote(
-                        host,
-                        &host_id,
-                        &dir_base,
-                        CHECK_PUSH_SCRIPT,
-                        &check_push_env,
-                    ) {
-                        eprintln!("{}", console::error(format!("Error: {}: {}", host_id, e)));
-                    }
-                });
-            }
-        });
+        run_cycle(config, &mut last_remote_refs, round, first_round, false);
 
         if interval_secs == 0 {
             eprintln!("{}", console::info("interval is 0, run once and quit"));
