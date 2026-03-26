@@ -1,6 +1,5 @@
 use anyhow::Context;
 use std::collections::{HashMap, HashSet};
-use std::thread;
 use std::time::{Duration, Instant};
 
 pub mod config;
@@ -11,6 +10,17 @@ pub mod ops;
 pub mod ssh;
 
 pub use config::{CentralConfig, Defaults, Host, Repo};
+
+/// Options for the watch event loop.
+pub struct WatchOpts {
+    pub interval_secs: u64,
+    pub timeout_secs: Option<u64>,
+    pub ignore_missing: bool,
+    pub skip_prepare: bool,
+    pub webhook_port: Option<u16>,
+    pub webhook_secret: Option<String>,
+    pub version: String,
+}
 
 /// Embedded check-push.sh script, run on remote with sandbox env.
 const CHECK_PUSH_SCRIPT: &str = include_str!("../embed/check-push.sh");
@@ -370,50 +380,85 @@ fn run_cycle(
     });
 }
 
-/// Prepare remotes (create dirs, init empty repos unless --ignore-missing), then run check-push on each host in a loop.
-/// Sleeps `interval_secs` between rounds. If `timeout_secs` is Some, stops after that many seconds.
-pub fn run_watch(
+/// Prepare remotes (create dirs, init empty repos unless --ignore-missing), then run check-push
+/// on each host in an event loop. The loop waits on either a timer tick or a webhook signal.
+/// Both trigger a deployment cycle and reset the timer.
+pub async fn run_watch(
     config: &CentralConfig,
-    interval_secs: u64,
-    timeout_secs: Option<u64>,
-    ignore_missing: bool,
-    skip_prepare: bool,
-    webhook_port: Option<u16>,
-    webhook_secret: Option<String>,
+    opts: WatchOpts,
 ) -> Result<(), anyhow::Error> {
-    let _ = (webhook_port, webhook_secret);
-    let interval = Duration::from_secs(interval_secs);
-    let deadline = timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
+    let interval = Duration::from_secs(opts.interval_secs);
+    let deadline = opts.timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
     let mut round: u64 = 0;
     let mut last_remote_refs: HashMap<String, String> = HashMap::new();
+    let mut first_timer_done = false;
 
-    if !skip_prepare {
-        run_prepare(config, ignore_missing)?;
+    if !opts.skip_prepare {
+        run_prepare(config, opts.ignore_missing)?;
     }
 
+    // Optionally start the webhook server
+    let mut webhook_rx = match (opts.webhook_port, opts.webhook_secret) {
+        (Some(port), Some(secret)) => {
+            Some(hook::start_webhook_server(port, secret, opts.version).await?)
+        }
+        _ => None,
+    };
+
     loop {
+        // For the first iteration, run immediately (no wait)
+        let skip_poll = if round == 0 {
+            false
+        } else {
+            if opts.interval_secs == 0 {
+                eprintln!("{}", console::info("interval is 0, run once and quit"));
+                break;
+            }
+
+            let sleep_duration = match deadline {
+                Some(d) => {
+                    let remaining = d.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        eprintln!("{}", console::info("watch timeout reached, stopping"));
+                        break;
+                    }
+                    remaining.min(interval)
+                }
+                None => interval,
+            };
+
+            // Wait for either timer or webhook signal
+            tokio::select! {
+                _ = tokio::time::sleep(sleep_duration) => {
+                    false // timer-triggered: poll for changes
+                }
+                Some(()) = async {
+                    match webhook_rx.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    true // webhook-triggered: skip polling
+                }
+            }
+        };
+
         round += 1;
-        let first_round = round == 1;
-
-        run_cycle(config, &mut last_remote_refs, round, first_round, false);
-
-        if interval_secs == 0 {
-            eprintln!("{}", console::info("interval is 0, run once and quit"));
-            break;
+        // First timer-triggered round always forces full run on all hosts
+        let first_round = !first_timer_done && !skip_poll;
+        if !skip_poll {
+            first_timer_done = true;
         }
 
-        let sleep_duration = match deadline {
-            Some(d) => {
-                let remaining = d.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    eprintln!("{}", console::info("watch timeout reached, stopping"));
-                    break;
-                }
-                remaining.min(interval)
-            }
-            None => interval,
-        };
-        thread::sleep(sleep_duration);
+        // run_cycle uses std::thread::scope (blocking SSH), so run in spawn_blocking
+        let config_clone = config.clone();
+        let mut refs = std::mem::take(&mut last_remote_refs);
+        let returned_refs = tokio::task::spawn_blocking(move || {
+            run_cycle(&config_clone, &mut refs, round, first_round, skip_poll);
+            refs
+        })
+        .await?;
+        last_remote_refs = returned_refs;
     }
 
     Ok(())

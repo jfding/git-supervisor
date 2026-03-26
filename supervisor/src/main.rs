@@ -1,6 +1,6 @@
 use clap::Parser;
 use git_supervisor::console;
-use git_supervisor::{run_check, run_watch, CentralConfig};
+use git_supervisor::{run_check, run_watch, CentralConfig, WatchOpts};
 use std::path::PathBuf;
 
 /// Version from repo VERSION file (set in build.rs).
@@ -94,15 +94,19 @@ fn main() {
                 );
                 std::process::exit(1);
             }
-            run_watch(
+            let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+            rt.block_on(run_watch(
                 &config,
-                args.interval,
-                args.timeout,
-                args.ignore_missing,
-                args.skip_prepare,
-                args.webhook_port,
-                args.webhook_secret.clone(),
-            )
+                WatchOpts {
+                    interval_secs: args.interval,
+                    timeout_secs: args.timeout,
+                    ignore_missing: args.ignore_missing,
+                    skip_prepare: args.skip_prepare,
+                    webhook_port: args.webhook_port,
+                    webhook_secret: args.webhook_secret.clone(),
+                    version: APP_VERSION.to_string(),
+                },
+            ))
         }
     };
     if let Err(e) = result {

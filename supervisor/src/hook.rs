@@ -8,7 +8,7 @@ use axum::{
     Json, Router,
 };
 use hmac::{Hmac, Mac};
-use serde_json::{json, Value};
+use serde_json::json;
 use sha2::Sha256;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -134,6 +134,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
+    use serde_json::Value;
     use tower::ServiceExt;
 
     fn make_signature(secret: &str, payload: &[u8]) -> String {
