@@ -74,7 +74,7 @@ fn resolve_config_path(path: &std::path::Path) -> PathBuf {
         return path.to_path_buf();
     }
     if let Some(name) = path.file_name() {
-        if path == PathBuf::from(name) {
+        if path == *name {
             if let Some(home) = dirs::home_dir() {
                 let candidate = home.join(".config/git-supervisor").join(name);
                 if candidate.exists() {
