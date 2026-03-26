@@ -75,7 +75,7 @@ async fn webhook_handler(
 async fn run_watch_handler(state: &Arc<HookState>) -> (StatusCode, Json<Value>) {
     let config = state.config.clone();
     let result =
-        tokio::task::spawn_blocking(move || crate::run_watch(&config, 0, None, false, true)).await;
+        tokio::task::spawn_blocking(move || crate::run_watch(&config, 0, None, false, true, None, None)).await;
 
     match result {
         Ok(Ok(())) => {

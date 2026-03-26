@@ -11,7 +11,6 @@ pub mod ops;
 pub mod ssh;
 
 pub use config::{CentralConfig, Defaults, Host, Repo};
-pub use hook::run_hook;
 
 /// Embedded check-push.sh script, run on remote with sandbox env.
 const CHECK_PUSH_SCRIPT: &str = include_str!("../embed/check-push.sh");
@@ -242,7 +241,10 @@ pub fn run_watch(
     timeout_secs: Option<u64>,
     ignore_missing: bool,
     skip_prepare: bool,
+    webhook_port: Option<u16>,
+    webhook_secret: Option<String>,
 ) -> Result<(), anyhow::Error> {
+    let _ = (webhook_port, webhook_secret);
     let interval = Duration::from_secs(interval_secs);
     let deadline = timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
     let mut round: u64 = 0;

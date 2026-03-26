@@ -1,6 +1,6 @@
 use clap::Parser;
 use git_supervisor::console;
-use git_supervisor::{run_check, run_hook, run_watch, CentralConfig};
+use git_supervisor::{run_check, run_watch, CentralConfig};
 use std::path::PathBuf;
 
 /// Version from repo VERSION file (set in build.rs).
@@ -21,11 +21,9 @@ struct Cli {
 enum Command {
     /// Check config, SSH/git connectivity, and repo existence on remotes
     Check,
-    /// Prepare remotes (create dirs, ensure repos) then run check-push on each host in a loop
+    /// Prepare remotes (create dirs, ensure repos) then run check-push on each host in a loop.
+    /// Optionally start a GitHub webhook server alongside the timer.
     Watch(WatchArgs),
-    /// Start a GitHub webhook server that triggers check-push on push events
-    #[command(name = "gh-webhook")]
-    GhWebhook(HookArgs),
 }
 
 #[derive(clap::Args)]
@@ -42,16 +40,12 @@ struct WatchArgs {
     /// Skip host/repos preparation checking at the start
     #[arg(short = 'S', long)]
     skip_prepare: bool,
-}
-
-#[derive(clap::Args)]
-struct HookArgs {
-    /// Port to listen on
-    #[arg(long, default_value = "9870")]
-    port: u16,
+    /// Port for the GitHub webhook server (enables webhook mode)
+    #[arg(long)]
+    webhook_port: Option<u16>,
     /// GitHub webhook secret (also reads GITHUB_WEBHOOK_SECRET env var)
     #[arg(long, env = "GITHUB_WEBHOOK_SECRET")]
-    secret: String,
+    webhook_secret: Option<String>,
 }
 
 fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
@@ -90,21 +84,25 @@ fn main() {
 
     let result = match &cli.command {
         Command::Check => run_check(&config),
-        Command::Watch(args) => run_watch(
-            &config,
-            args.interval,
-            args.timeout,
-            args.ignore_missing,
-            args.skip_prepare,
-        ),
-        Command::GhWebhook(args) => {
-            let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
-            rt.block_on(run_hook(
-                config,
-                args.port,
-                args.secret.clone(),
-                APP_VERSION.to_string(),
-            ))
+        Command::Watch(args) => {
+            if args.webhook_port.is_some() && args.webhook_secret.is_none() {
+                eprintln!(
+                    "{}",
+                    console::error(
+                        "Error: --webhook-port requires --webhook-secret or GITHUB_WEBHOOK_SECRET env var"
+                    )
+                );
+                std::process::exit(1);
+            }
+            run_watch(
+                &config,
+                args.interval,
+                args.timeout,
+                args.ignore_missing,
+                args.skip_prepare,
+                args.webhook_port,
+                args.webhook_secret.clone(),
+            )
         }
     };
     if let Err(e) = result {
