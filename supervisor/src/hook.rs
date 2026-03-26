@@ -19,7 +19,6 @@ type HmacSha256 = Hmac<Sha256>;
 struct HookState {
     secret: String,
     config: CentralConfig,
-    script: Option<String>,
     version: String,
 }
 
@@ -70,40 +69,7 @@ async fn webhook_handler(
         );
     }
 
-    if state.script.is_some() {
-        run_script_handler(&state).await
-    } else {
-        run_watch_handler(&state).await
-    }
-}
-
-async fn run_script_handler(state: &Arc<HookState>) -> (StatusCode, Json<Value>) {
-    let script = state.script.clone().unwrap();
-    let result = tokio::task::spawn_blocking(move || {
-        std::process::Command::new(&script).arg("--once").status()
-    })
-    .await;
-
-    match result {
-        Ok(Ok(status)) if status.success() => {
-            let mut payload =
-                json!({ "status": "CI job started", "engine": state.script.as_deref().unwrap() });
-            payload["version"] = json!(state.version);
-            (StatusCode::OK, Json(payload))
-        }
-        Ok(Ok(status)) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Script exited with {}", status) })),
-        ),
-        Ok(Err(e)) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Script execution failed: {}", e) })),
-        ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Task join error: {}", e) })),
-        ),
-    }
+    run_watch_handler(&state).await
 }
 
 async fn run_watch_handler(state: &Arc<HookState>) -> (StatusCode, Json<Value>) {
@@ -130,19 +96,16 @@ async fn run_watch_handler(state: &Arc<HookState>) -> (StatusCode, Json<Value>) 
 
 /// Start the webhook HTTP server.
 ///
-/// When `script` is Some, push events run that script with `--once`.
-/// Otherwise, push events trigger a one-shot `run_watch` cycle using the config.
+/// Push events trigger a one-shot `run_watch` cycle using the config.
 pub async fn run_hook(
     config: CentralConfig,
     port: u16,
     secret: String,
-    script: Option<String>,
     version: String,
 ) -> Result<()> {
     let state = Arc::new(HookState {
         secret,
         config,
-        script,
         version,
     });
 

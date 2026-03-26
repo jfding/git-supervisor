@@ -52,9 +52,6 @@ struct HookArgs {
     /// GitHub webhook secret (also reads GITHUB_WEBHOOK_SECRET env var)
     #[arg(long, env = "GITHUB_WEBHOOK_SECRET")]
     secret: String,
-    /// External script to run on push events instead of supervisor watch-once
-    #[arg(long)]
-    script: Option<String>,
 }
 
 fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
@@ -106,7 +103,6 @@ fn main() {
                 config,
                 args.port,
                 args.secret.clone(),
-                args.script.clone(),
                 APP_VERSION.to_string(),
             ))
         }
