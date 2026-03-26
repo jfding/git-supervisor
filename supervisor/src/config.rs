@@ -58,6 +58,9 @@ pub struct Host {
     pub ssh_target: String,
     pub ssh_port: Option<u16>,
     pub ssh_identity_file: Option<String>,
+    /// Bare filename to look up in managed key dirs (~/.config/git-supervisor/keys/ then ~/.ssh/).
+    /// Takes precedence over `ssh_identity_file` when both are set.
+    pub ssh_key_name: Option<String>,
     pub dir_base: Option<String>,
     /// List of repo refs (name or { name, branches? }). Must exist in top-level `repos`.
     #[serde(default)]
@@ -399,6 +402,43 @@ hosts:
         let without_p = config.hosts.get("without-patterns").unwrap();
         assert_eq!(without_p.release_tag_pattern, None);
         assert_eq!(without_p.release_tag_exclude_pattern, None);
+    }
+
+    #[test]
+    fn ssh_key_name_parsed() {
+        let yaml = r#"
+repos: {}
+hosts:
+  with-key-name:
+    ssh_target: u@h
+    repos: []
+    ssh_key_name: deploy_key
+  with-both:
+    ssh_target: u@h2
+    repos: []
+    ssh_identity_file: ~/.ssh/id_rsa
+    ssh_key_name: deploy_key
+  without-key-name:
+    ssh_target: u@h3
+    repos: []
+"#;
+        let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            config.hosts.get("with-key-name").unwrap().ssh_key_name.as_deref(),
+            Some("deploy_key")
+        );
+        assert_eq!(
+            config.hosts.get("with-both").unwrap().ssh_key_name.as_deref(),
+            Some("deploy_key")
+        );
+        assert_eq!(
+            config.hosts.get("with-both").unwrap().ssh_identity_file.as_deref(),
+            Some("~/.ssh/id_rsa")
+        );
+        assert_eq!(
+            config.hosts.get("without-key-name").unwrap().ssh_key_name,
+            None
+        );
     }
 
     #[test]

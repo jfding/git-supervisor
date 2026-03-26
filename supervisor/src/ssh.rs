@@ -151,6 +151,7 @@ mod tests {
             ssh_target: ssh_target.to_string(),
             ssh_port: None,
             ssh_identity_file: None,
+            ssh_key_name: None,
             dir_base: None,
             repos: Vec::<HostRepoRef>::new(),
             release_count: None,
