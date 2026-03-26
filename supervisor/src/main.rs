@@ -67,9 +67,29 @@ fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
     }
 }
 
+/// Resolve config file path: if the given path doesn't exist and is the default
+/// filename, look for it in ~/.config/git-supervisor/.
+fn resolve_config_path(path: &std::path::Path) -> PathBuf {
+    if path.exists() {
+        return path.to_path_buf();
+    }
+    if let Some(name) = path.file_name() {
+        if path == PathBuf::from(name) {
+            if let Some(home) = dirs::home_dir() {
+                let candidate = home.join(".config/git-supervisor").join(name);
+                if candidate.exists() {
+                    return candidate;
+                }
+            }
+        }
+    }
+    path.to_path_buf()
+}
+
 fn main() {
     let cli = Cli::parse();
-    let config = load_config_or_exit(&cli.config);
+    let config_path = resolve_config_path(&cli.config);
+    let config = load_config_or_exit(&config_path);
 
     let result = match &cli.command {
         Command::Check => run_check(&config),

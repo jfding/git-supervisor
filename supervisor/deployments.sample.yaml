@@ -24,11 +24,17 @@ hosts:
     ssh_target: deploy@app-server.example.com
     repos: [webapp]
 
-  # Host with custom SSH key, port, dir_base, release_count, release tag patterns, and per-repo branches
+  # Host with managed SSH key (looked up in ~/.config/git-supervisor/keys/ then ~/.ssh/)
+  staging-server:
+    ssh_target: deploy@staging.example.com
+    ssh_key_name: staging_deploy_key
+
+  # Host with explicit SSH key path, port, dir_base, release_count, release tag patterns, and per-repo branches
   devops-server:
     ssh_target: ops@devops-server.ai
     ssh_port: 2222
     ssh_identity_file: ~/.ssh/deploy_key
+    # ssh_key_name: deploy_key  # alternative: use managed key (takes precedence over ssh_identity_file)
 
     release_count: 6        # optional, default 4
     # release_tag_pattern: "^v[0-9Q.]+$"       # optional; passed as RELEASE_TAG_PATTERN

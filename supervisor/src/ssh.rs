@@ -84,6 +84,16 @@ fn local_run_with_stdin(command: &str, stdin_data: &[u8]) -> Result<()> {
     }
 }
 
+/// Resolve the effective SSH identity file for a host.
+/// `ssh_key_name` (managed key) takes precedence over `ssh_identity_file` (explicit path).
+fn resolve_identity_file(host: &Host) -> Result<Option<String>> {
+    if let Some(ref name) = host.ssh_key_name {
+        let path = crate::keys::resolve(name)?;
+        return Ok(Some(path.to_string_lossy().into_owned()));
+    }
+    Ok(host.ssh_identity_file.clone())
+}
+
 /// Run a shell command on the remote host via SSH.
 /// `command` is the full shell snippet executed on the remote (e.g. "mkdir -p /work/git_repos").
 pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
@@ -91,8 +101,9 @@ pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
         return local_run(command);
     }
 
+    let identity = resolve_identity_file(host)?;
     let mut cmd = Command::new("ssh");
-    if let Some(ref id) = host.ssh_identity_file {
+    if let Some(ref id) = identity {
         cmd.arg("-i").arg(expand_tilde(id));
     }
     if let Some(p) = host.ssh_port {
@@ -114,8 +125,9 @@ pub fn ssh_run_with_stdin(host: &Host, command: &str, stdin_data: &[u8]) -> Resu
         return local_run_with_stdin(command, stdin_data);
     }
 
+    let identity = resolve_identity_file(host)?;
     let mut cmd = Command::new("ssh");
-    if let Some(ref id) = host.ssh_identity_file {
+    if let Some(ref id) = identity {
         cmd.arg("-i").arg(expand_tilde(id));
     }
     if let Some(p) = host.ssh_port {
@@ -151,6 +163,7 @@ mod tests {
             ssh_target: ssh_target.to_string(),
             ssh_port: None,
             ssh_identity_file: None,
+            ssh_key_name: None,
             dir_base: None,
             repos: Vec::<HostRepoRef>::new(),
             release_count: None,
