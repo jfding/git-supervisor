@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 pub mod config;
 pub mod console;
 pub mod hook;
+pub mod keys;
 pub mod ops;
 pub mod ssh;
 
