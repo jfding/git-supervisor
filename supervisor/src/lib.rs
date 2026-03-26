@@ -1,6 +1,5 @@
 use anyhow::Context;
 use std::collections::{HashMap, HashSet};
-use std::thread;
 use std::time::{Duration, Instant};
 
 pub mod config;
@@ -11,7 +10,17 @@ pub mod ops;
 pub mod ssh;
 
 pub use config::{CentralConfig, Defaults, Host, Repo};
-pub use hook::run_hook;
+
+/// Options for the watch event loop.
+pub struct WatchOpts {
+    pub interval_secs: u64,
+    pub timeout_secs: Option<u64>,
+    pub ignore_missing: bool,
+    pub skip_prepare: bool,
+    pub webhook_port: Option<u16>,
+    pub webhook_secret: Option<String>,
+    pub version: String,
+}
 
 /// Embedded check-push.sh script, run on remote with sandbox env.
 const CHECK_PUSH_SCRIPT: &str = include_str!("../embed/check-push.sh");
@@ -234,30 +243,34 @@ fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyho
     }
 }
 
-/// Prepare remotes (create dirs, init empty repos unless --ignore-missing), then run check-push on each host in a loop.
-/// Sleeps `interval_secs` between rounds. If `timeout_secs` is Some, stops after that many seconds.
-pub fn run_watch(
+/// Run one deployment cycle.
+///
+/// When `skip_poll` is true (webhook trigger), skip `git ls-remote` polling
+/// and run check-push on all hosts. When false (timer trigger), poll and only
+/// run hosts with changed repos.
+fn run_cycle(
     config: &CentralConfig,
-    interval_secs: u64,
-    timeout_secs: Option<u64>,
-    ignore_missing: bool,
-    skip_prepare: bool,
-) -> Result<(), anyhow::Error> {
-    let interval = Duration::from_secs(interval_secs);
-    let deadline = timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
-    let mut round: u64 = 0;
-    let mut last_remote_refs: HashMap<String, String> = HashMap::new();
-
-    // prepare remote hosts and repos: check the necessary command and dirs
-    // and check the readiness of all remote repos
-    if !skip_prepare {
-        run_prepare(config, ignore_missing)?;
-    }
-
-    loop {
-        round += 1;
-        let first_round = round == 1;
-        let (changed_repos, failed_repos) = poll_changed_repos(config, &mut last_remote_refs);
+    last_remote_refs: &mut HashMap<String, String>,
+    round: u64,
+    first_round: bool,
+    skip_poll: bool,
+) {
+    let (changed_repos, failed_repos) = if skip_poll {
+        eprintln!(
+            "{}",
+            console::info(format!(
+                "watch round {} [webhook] (hosts: {})",
+                round,
+                config.hosts.len()
+            ))
+        );
+        eprintln!(
+            "{}",
+            console::info("watch: webhook triggered, running remote check-push for all hosts")
+        );
+        (HashSet::new(), HashSet::new())
+    } else {
+        let (changed, failed) = poll_changed_repos(config, last_remote_refs);
         eprintln!(
             "{}",
             console::info(format!(
@@ -267,13 +280,13 @@ pub fn run_watch(
             ))
         );
         if !first_round {
-            if changed_repos.is_empty() {
+            if changed.is_empty() {
                 eprintln!(
                     "{}",
                     console::info("watch: no upstream repo changes detected in this round")
                 );
             } else {
-                let mut changed_sorted: Vec<_> = changed_repos.iter().cloned().collect();
+                let mut changed_sorted: Vec<_> = changed.iter().cloned().collect();
                 changed_sorted.sort();
                 eprintln!(
                     "{}",
@@ -289,41 +302,46 @@ pub fn run_watch(
                 console::info("watch: initial round, running remote check-push for all hosts")
             );
         }
+        (changed, failed)
+    };
 
-        std::thread::scope(|s| {
-            for (host_id, host) in &config.hosts {
-                let host_id = host_id.clone();
-                let dir_base = config.dir_base_for_host(&host_id).clone();
-                let host_repo_names: Vec<String> = config
-                    .repos_for_host(&host_id)
-                    .into_iter()
-                    .map(|r| r.name)
-                    .collect();
-                let (repo_whitelist, br_whitelist_per_host) =
-                    whitelists_from_config(config, &host_id);
-                let check_push_env = ops::CheckPushEnv {
-                    repo_whitelist,
-                    repo_branches: br_whitelist_per_host,
-                    log_level: config.defaults.as_ref().and_then(|d| d.log_level),
-                    release_tag_topn: host.release_count,
-                    release_tag_pattern: host.release_tag_pattern.clone(),
-                    release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
-                };
+    std::thread::scope(|s| {
+        for (host_id, host) in &config.hosts {
+            let host_id = host_id.clone();
+            let dir_base = config.dir_base_for_host(&host_id).clone();
+            let host_repo_names: Vec<String> = config
+                .repos_for_host(&host_id)
+                .into_iter()
+                .map(|r| r.name)
+                .collect();
+            let (repo_whitelist, br_whitelist_per_host) =
+                whitelists_from_config(config, &host_id);
+            let check_push_env = ops::CheckPushEnv {
+                repo_whitelist,
+                repo_branches: br_whitelist_per_host,
+                log_level: config.defaults.as_ref().and_then(|d| d.log_level),
+                release_tag_topn: host.release_count,
+                release_tag_pattern: host.release_tag_pattern.clone(),
+                release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
+            };
 
+            // Webhook-triggered cycles always run all hosts
+            let should_run_remote = if skip_poll {
+                true
+            } else {
                 let has_changed_repo = host_repo_names
                     .iter()
                     .any(|repo| changed_repos.contains(repo));
                 let has_probe_failure = host_repo_names
                     .iter()
                     .any(|repo| failed_repos.contains(repo));
-                let should_run_remote = should_run_host_remote(
+                let should_run = should_run_host_remote(
                     first_round,
                     &host_repo_names,
                     &changed_repos,
                     &failed_repos,
                 );
-
-                if !should_run_remote {
+                if !should_run {
                     eprintln!(
                         "{}",
                         console::info(format!(
@@ -331,9 +349,8 @@ pub fn run_watch(
                             host_id
                         ))
                     );
-                    continue;
                 }
-                if has_probe_failure && !first_round && !has_changed_repo {
+                if has_probe_failure && !first_round && !has_changed_repo && should_run {
                     eprintln!(
                         "{}",
                         console::warning(format!(
@@ -342,37 +359,106 @@ pub fn run_watch(
                         ))
                     );
                 }
-                s.spawn(move || {
-                    if let Err(e) = ops::run_check_push_remote(
-                        host,
-                        &host_id,
-                        &dir_base,
-                        CHECK_PUSH_SCRIPT,
-                        &check_push_env,
-                    ) {
-                        eprintln!("{}", console::error(format!("Error: {}: {}", host_id, e)));
-                    }
-                });
-            }
-        });
+                should_run
+            };
 
-        if interval_secs == 0 {
-            eprintln!("{}", console::info("interval is 0, run once and quit"));
-            break;
+            if !should_run_remote {
+                continue;
+            }
+            s.spawn(move || {
+                if let Err(e) = ops::run_check_push_remote(
+                    host,
+                    &host_id,
+                    &dir_base,
+                    CHECK_PUSH_SCRIPT,
+                    &check_push_env,
+                ) {
+                    eprintln!("{}", console::error(format!("Error: {}: {}", host_id, e)));
+                }
+            });
+        }
+    });
+}
+
+/// Prepare remotes (create dirs, init empty repos unless --ignore-missing), then run check-push
+/// on each host in an event loop. The loop waits on either a timer tick or a webhook signal.
+/// Both trigger a deployment cycle and reset the timer.
+pub async fn run_watch(
+    config: &CentralConfig,
+    opts: WatchOpts,
+) -> Result<(), anyhow::Error> {
+    let interval = Duration::from_secs(opts.interval_secs);
+    let deadline = opts.timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
+    let mut round: u64 = 0;
+    let mut last_remote_refs: HashMap<String, String> = HashMap::new();
+    let mut first_timer_done = false;
+
+    if !opts.skip_prepare {
+        run_prepare(config, opts.ignore_missing)?;
+    }
+
+    // Optionally start the webhook server
+    let mut webhook_rx = match (opts.webhook_port, opts.webhook_secret) {
+        (Some(port), Some(secret)) => {
+            Some(hook::start_webhook_server(port, secret, opts.version).await?)
+        }
+        _ => None,
+    };
+
+    loop {
+        // For the first iteration, run immediately (no wait)
+        let skip_poll = if round == 0 {
+            false
+        } else {
+            if opts.interval_secs == 0 {
+                eprintln!("{}", console::info("interval is 0, run once and quit"));
+                break;
+            }
+
+            let sleep_duration = match deadline {
+                Some(d) => {
+                    let remaining = d.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        eprintln!("{}", console::info("watch timeout reached, stopping"));
+                        break;
+                    }
+                    remaining.min(interval)
+                }
+                None => interval,
+            };
+
+            // Wait for either timer or webhook signal
+            tokio::select! {
+                _ = tokio::time::sleep(sleep_duration) => {
+                    false // timer-triggered: poll for changes
+                }
+                Some(()) = async {
+                    match webhook_rx.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    true // webhook-triggered: skip polling
+                }
+            }
+        };
+
+        round += 1;
+        // First timer-triggered round always forces full run on all hosts
+        let first_round = !first_timer_done && !skip_poll;
+        if !skip_poll {
+            first_timer_done = true;
         }
 
-        let sleep_duration = match deadline {
-            Some(d) => {
-                let remaining = d.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    eprintln!("{}", console::info("watch timeout reached, stopping"));
-                    break;
-                }
-                remaining.min(interval)
-            }
-            None => interval,
-        };
-        thread::sleep(sleep_duration);
+        // run_cycle uses std::thread::scope (blocking SSH), so run in spawn_blocking
+        let config_clone = config.clone();
+        let mut refs = std::mem::take(&mut last_remote_refs);
+        let returned_refs = tokio::task::spawn_blocking(move || {
+            run_cycle(&config_clone, &mut refs, round, first_round, skip_poll);
+            refs
+        })
+        .await?;
+        last_remote_refs = returned_refs;
     }
 
     Ok(())
