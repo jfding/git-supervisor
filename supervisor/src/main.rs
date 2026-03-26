@@ -77,6 +77,16 @@ fn resolve_config_path(path: &std::path::Path) -> PathBuf {
     path.to_path_buf()
 }
 
+/// Validate that webhook_port requires a webhook_secret.
+fn validate_webhook_args(args: &WatchArgs) -> Result<(), String> {
+    if args.webhook_port.is_some() && args.webhook_secret.is_none() {
+        return Err(
+            "--webhook-port requires --webhook-secret or GITHUB_WEBHOOK_SECRET env var".into(),
+        );
+    }
+    Ok(())
+}
+
 fn main() {
     let cli = Cli::parse();
     let config_path = resolve_config_path(&cli.config);
@@ -85,13 +95,8 @@ fn main() {
     let result = match &cli.command {
         Command::Check => run_check(&config),
         Command::Watch(args) => {
-            if args.webhook_port.is_some() && args.webhook_secret.is_none() {
-                eprintln!(
-                    "{}",
-                    console::error(
-                        "Error: --webhook-port requires --webhook-secret or GITHUB_WEBHOOK_SECRET env var"
-                    )
-                );
+            if let Err(msg) = validate_webhook_args(args) {
+                eprintln!("{}", console::error(format!("Error: {}", msg)));
                 std::process::exit(1);
             }
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
@@ -112,5 +117,101 @@ fn main() {
     if let Err(e) = result {
         eprintln!("{}", console::error(format!("Error: {}", e)));
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_watch_parses_with_defaults() {
+        let cli = Cli::try_parse_from(["supervisor", "watch"]).unwrap();
+        match cli.command {
+            Command::Watch(args) => {
+                assert_eq!(args.interval, 120);
+                assert!(args.timeout.is_none());
+                assert!(!args.ignore_missing);
+                assert!(!args.skip_prepare);
+                assert!(args.webhook_port.is_none());
+                assert!(args.webhook_secret.is_none());
+            }
+            _ => panic!("expected Watch command"),
+        }
+    }
+
+    #[test]
+    fn cli_watch_parses_all_flags() {
+        let cli = Cli::try_parse_from([
+            "supervisor",
+            "watch",
+            "--interval",
+            "60",
+            "--timeout",
+            "300",
+            "-I",
+            "-S",
+            "--webhook-port",
+            "9870",
+            "--webhook-secret",
+            "my-secret",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Watch(args) => {
+                assert_eq!(args.interval, 60);
+                assert_eq!(args.timeout, Some(300));
+                assert!(args.ignore_missing);
+                assert!(args.skip_prepare);
+                assert_eq!(args.webhook_port, Some(9870));
+                assert_eq!(args.webhook_secret.as_deref(), Some("my-secret"));
+            }
+            _ => panic!("expected Watch command"),
+        }
+    }
+
+    #[test]
+    fn validate_webhook_port_without_secret_fails() {
+        let args = WatchArgs {
+            interval: 120,
+            timeout: None,
+            ignore_missing: false,
+            skip_prepare: false,
+            webhook_port: Some(9870),
+            webhook_secret: None,
+        };
+        assert!(validate_webhook_args(&args).is_err());
+    }
+
+    #[test]
+    fn validate_webhook_port_with_secret_ok() {
+        let args = WatchArgs {
+            interval: 120,
+            timeout: None,
+            ignore_missing: false,
+            skip_prepare: false,
+            webhook_port: Some(9870),
+            webhook_secret: Some("secret".into()),
+        };
+        assert!(validate_webhook_args(&args).is_ok());
+    }
+
+    #[test]
+    fn validate_no_webhook_flags_ok() {
+        let args = WatchArgs {
+            interval: 120,
+            timeout: None,
+            ignore_missing: false,
+            skip_prepare: false,
+            webhook_port: None,
+            webhook_secret: None,
+        };
+        assert!(validate_webhook_args(&args).is_ok());
+    }
+
+    #[test]
+    fn cli_gh_webhook_subcommand_removed() {
+        let result = Cli::try_parse_from(["supervisor", "gh-webhook", "--secret", "s"]);
+        assert!(result.is_err());
     }
 }
