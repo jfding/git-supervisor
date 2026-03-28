@@ -15,20 +15,21 @@ services:
 
         working_dir: /work
 
-        # uncomment this to run the check-push.sh script instead of web hook
+        # default: webhook mode on port 9870 (requires GITHUB_WEBHOOK_SECRET)
+        # uncomment to run the shell script directly instead:
         #command: /scripts/check-push.sh
 
-        # uncomment this to run the git-supervisor
+        # uncomment to run in polling-only mode (no webhook):
         #command: /git-supervisor watch --interval 120
 
         environment:
             - TZ=Asia/Shanghai
             - FORCE_COLOR=1
             - LOGLEVEL=2
-               # default LOGLEVEL 2 means verbose
+               # default LOGLEVEL 2 means verbose (used by check-push.sh)
             - GITHUB_WEBHOOK_SECRET=1234567890
-               # GITHUB_WEBHOOK_SECRET is required to run gh-webhook
+               # required for webhook mode (--webhook-port)
             #- TIMEOUT=120
-               # default timeout of possible pending cmd is 120s
+               # default timeout for long-running git ops is 600s (check-push.sh only)
             #- SLEEP_TIME=360
-               # default sleep time is 360s
+               # polling interval in seconds for check-push.sh (use --interval for git-supervisor watch)

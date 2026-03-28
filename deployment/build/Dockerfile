@@ -8,16 +8,13 @@ COPY VERSION /build/VERSION
 RUN cargo build --release
 
 # Final stage
-FROM python:3.12-slim
+FROM debian:bookworm-slim
 
-# TODO: remove unused packages later
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     git \
     openssh-client \
     curl \
-    netcat-openbsd \
-    xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy supervisor binary from build stage
@@ -29,4 +26,4 @@ COPY supervisor/deployments.sample.yaml /scripts/deployments.yaml
 COPY src/check-push.sh /scripts
 COPY VERSION /scripts/VERSION
 
-CMD ["/git-supervisor", "gh-webhook", "--script", "/scripts/check-push.sh"]
+CMD ["/git-supervisor", "watch", "--webhook-port", "9870"]
