@@ -9,9 +9,9 @@ const APP_VERSION: &str = env!("APP_VERSION");
 #[derive(Parser)]
 #[command(name = "supervisor", version = APP_VERSION)]
 struct Cli {
-    /// Config file path
-    #[arg(short = 'c', long, global = true, default_value = "deployments.yaml")]
-    config: PathBuf,
+    /// Config file path (default: ~/.config/git-supervisor/deployments.yaml or ./deployments.yaml)
+    #[arg(short = 'c', long, global = true)]
+    config: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Command,
@@ -58,23 +58,20 @@ fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
     }
 }
 
-/// Resolve config file path: if the given path doesn't exist and is the default
-/// filename, look for it in ~/.config/git-supervisor/.
-fn resolve_config_path(path: &std::path::Path) -> PathBuf {
-    if path.exists() {
+/// Resolve config file path.
+/// If explicitly provided, use it as-is.
+/// Otherwise search: ~/.config/git-supervisor/deployments.yaml, then ./deployments.yaml.
+fn resolve_config_path(explicit: Option<&std::path::Path>) -> PathBuf {
+    if let Some(path) = explicit {
         return path.to_path_buf();
     }
-    if let Some(name) = path.file_name() {
-        if path == *name {
-            if let Some(home) = dirs::home_dir() {
-                let candidate = home.join(".config/git-supervisor").join(name);
-                if candidate.exists() {
-                    return candidate;
-                }
-            }
+    if let Some(home) = dirs::home_dir() {
+        let candidate = home.join(".config/git-supervisor/deployments.yaml");
+        if candidate.exists() {
+            return candidate;
         }
     }
-    path.to_path_buf()
+    PathBuf::from("deployments.yaml")
 }
 
 /// Validate that webhook_port requires a webhook_secret.
@@ -89,7 +86,7 @@ fn validate_webhook_args(args: &WatchArgs) -> Result<(), String> {
 
 fn main() {
     let cli = Cli::parse();
-    let config_path = resolve_config_path(&cli.config);
+    let config_path = resolve_config_path(cli.config.as_deref());
     let config = load_config_or_exit(&config_path);
 
     let result = match &cli.command {
