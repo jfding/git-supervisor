@@ -10,7 +10,7 @@ const APP_VERSION: &str = env!("APP_VERSION");
 #[command(name = "supervisor", version = APP_VERSION)]
 struct Cli {
     /// Config file path
-    #[arg(global = true, default_value = "deployments.yaml")]
+    #[arg(short = 'c', long, global = true, default_value = "deployments.yaml")]
     config: PathBuf,
 
     #[command(subcommand)]
