@@ -170,6 +170,30 @@ pub fn run_check_push_remote(
         .context("run check-push on remote failed")
 }
 
+/// Run the embedded check-push.sh script once on the local machine.
+/// All env vars (DIR_BASE, BR_WHITELIST, LOGLEVEL, etc.) are inherited from the process environment.
+pub fn run_check_push_local(script: &str) -> Result<()> {
+    let color_env = if console::color_enabled() { "FORCE_COLOR=1 " } else { "" };
+    let command = format!(
+        "{}SLEEP_TIME=0 CI_LOCK='{}' bash -s -- --once",
+        color_env,
+        CHECK_PUSH_CI_LOCK
+    );
+    let localhost = Host {
+        ssh_target: "localhost".to_string(),
+        ssh_port: None,
+        ssh_identity_file: None,
+        ssh_key_name: None,
+        dir_base: None,
+        repos: vec![],
+        release_count: None,
+        release_tag_pattern: None,
+        release_tag_exclude_pattern: None,
+    };
+    ssh::ssh_run_with_stdin(&localhost, &command, script.as_bytes())
+        .context("local check-push failed")
+}
+
 /// Query remote refs for a repo URL and return a stable fingerprint string.
 ///
 /// Uses `git ls-remote --heads --tags --refs <url>` so the supervisor can

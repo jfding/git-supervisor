@@ -1,6 +1,6 @@
 use clap::Parser;
 use git_supervisor::console;
-use git_supervisor::{run_check, run_watch, CentralConfig, WatchOpts};
+use git_supervisor::{run_check, run_local_watch, run_watch, CentralConfig, WatchOpts};
 use std::path::PathBuf;
 
 /// Version from repo VERSION file (set in build.rs).
@@ -59,19 +59,24 @@ fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
 }
 
 /// Resolve config file path.
-/// If explicitly provided, use it as-is.
+/// If explicitly provided, use it as-is (caller gets the error if it doesn't exist).
 /// Otherwise search: ~/.config/git-supervisor/deployments.yaml, then ./deployments.yaml.
-fn resolve_config_path(explicit: Option<&std::path::Path>) -> PathBuf {
+/// Returns None if not specified and not found in either default location.
+fn resolve_config_path(explicit: Option<&std::path::Path>) -> Option<PathBuf> {
     if let Some(path) = explicit {
-        return path.to_path_buf();
+        return Some(path.to_path_buf());
     }
     if let Some(home) = dirs::home_dir() {
         let candidate = home.join(".config/git-supervisor/deployments.yaml");
         if candidate.exists() {
-            return candidate;
+            return Some(candidate);
         }
     }
-    PathBuf::from("deployments.yaml")
+    let cwd = PathBuf::from("deployments.yaml");
+    if cwd.exists() {
+        return Some(cwd);
+    }
+    None
 }
 
 /// Validate that webhook_port requires a webhook_secret.
@@ -87,30 +92,48 @@ fn validate_webhook_args(args: &WatchArgs) -> Result<(), String> {
 fn main() {
     let cli = Cli::parse();
     let config_path = resolve_config_path(cli.config.as_deref());
-    let config = load_config_or_exit(&config_path);
 
-    let result = match &cli.command {
-        Command::Check => run_check(&config),
+    let result: Result<(), anyhow::Error> = match &cli.command {
+        Command::Check => {
+            let path = config_path.unwrap_or_else(|| {
+                eprintln!("{}", console::error(
+                    "no config file found; use --config or create ~/.config/git-supervisor/deployments.yaml"
+                ));
+                std::process::exit(1);
+            });
+            let config = load_config_or_exit(&path);
+            run_check(&config)
+        }
         Command::Watch(args) => {
             if let Err(msg) = validate_webhook_args(args) {
                 eprintln!("{}", console::error(format!("Error: {}", msg)));
                 std::process::exit(1);
             }
-            let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
-            rt.block_on(run_watch(
-                &config,
-                WatchOpts {
-                    interval_secs: args.interval,
-                    timeout_secs: args.timeout,
-                    ignore_missing: args.ignore_missing,
-                    skip_prepare: args.skip_prepare,
-                    webhook_port: args.webhook_port,
-                    webhook_secret: args.webhook_secret.clone(),
-                    version: APP_VERSION.to_string(),
-                },
-            ))
+            match config_path {
+                Some(ref path) => {
+                    let config = load_config_or_exit(path);
+                    let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+                    rt.block_on(run_watch(
+                        &config,
+                        WatchOpts {
+                            interval_secs: args.interval,
+                            timeout_secs: args.timeout,
+                            ignore_missing: args.ignore_missing,
+                            skip_prepare: args.skip_prepare,
+                            webhook_port: args.webhook_port,
+                            webhook_secret: args.webhook_secret.clone(),
+                            version: APP_VERSION.to_string(),
+                        },
+                    ))
+                }
+                None => {
+                    eprintln!("{}", console::info("no config found, running in local mode"));
+                    run_local_watch(args.interval, args.timeout)
+                }
+            }
         }
     };
+
     if let Err(e) = result {
         eprintln!("{}", console::error(format!("Error: {}", e)));
         std::process::exit(1);
