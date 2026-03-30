@@ -21,9 +21,6 @@ RUN apt-get update && \
 COPY --from=rust-builder /build/target/release/git-supervisor /git-supervisor
 RUN chmod +x /git-supervisor
 
-WORKDIR /scripts
-COPY supervisor/deployments.sample.yaml /scripts/deployments.yaml
-COPY src/check-push.sh /scripts
-COPY VERSION /scripts/VERSION
+WORKDIR /work
 
-CMD ["/git-supervisor", "watch", "--webhook-port", "9870"]
+CMD ["/git-supervisor", "watch", "--interval", "${TIMER_INTERVAL:-120}"]
