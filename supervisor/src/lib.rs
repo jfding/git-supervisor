@@ -498,7 +498,7 @@ pub fn run_local_watch(interval_secs: u64, timeout_secs: Option<u64>) -> Result<
             std::thread::sleep(interval);
         }
 
-        if deadline.map_or(false, |d| Instant::now() >= d) {
+        if deadline.is_some_and(|d| Instant::now() >= d) {
             eprintln!("{}", console::info("watch timeout reached, stopping"));
             break;
         }

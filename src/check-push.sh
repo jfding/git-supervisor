@@ -546,15 +546,14 @@ function fetch_and_check {
   fi
 
   _br_whitelist=$(get_branches_for_repo "$_repo")
+  debug "..branch whitelist: [$_br_whitelist]"
 
   cd "$_repo" || { err "failed to cd to $_repo, critical issue, skip"; return 1; }
 
   # clean up trash file from last time crash
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
 
-  info "..git-fetching to sync all remote branches and tags..."
-  verbose "..branch whitelist: [$_br_whitelist]"
-
+  verbose "..syncing all remote branches and tags..."
   _timeout git fetch -q --all --tags --prune --prune-tags || {
     err "failed to fetch repo $_repo, skip"
     return 1
@@ -697,7 +696,7 @@ function main_loop {
     )
 
     for _repo in $REPOS_TO_CHECK; do
-      info "[${_repo}] checking git status ..."
+      info "[${_repo}] checking git upstream changes ..."
       ( LOG_PREFIX="[${_repo}]"; fetch_and_check "${_repo}" ) &
     done
 
