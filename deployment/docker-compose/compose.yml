@@ -27,6 +27,8 @@ services:
         environment:
             - TZ=Asia/Shanghai
             - FORCE_COLOR=1
+
+            # settings by ENV
             - LOGLEVEL=2
                # 0=quiet 1=info 2=verbose 3=debug
             - TIMER_INTERVAL=120
