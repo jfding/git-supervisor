@@ -27,22 +27,20 @@ xattr -c git-supervisor
 - Volume <work> to store all the data: git_repos, (code)copies, scripts.
 - Volumn <keys> to store the ssh keys to access github.com repos.
 
-### Web hook for github repos
+### Webhook mode for GitHub repos
 
-The `gh-webhook` subcommand starts a GitHub webhook server (default port `:9870`). It verifies push event signatures and triggers a check-push cycle on all configured hosts.
+Webhook serving is now part of `watch` mode (no standalone `gh-webhook` subcommand).
+Use `watch` with `--webhook-port` and a secret (`--webhook-secret` or `GITHUB_WEBHOOK_SECRET`).
 
 ```bash
-# Using supervisor config (triggers watch-once on push events)
-/git-supervisor gh-webhook --secret MY_SECRET
+# Watch loop + webhook server on :9870
+/git-supervisor watch --webhook-port 9870 --webhook-secret MY_SECRET
 
-# Using an external script (backward-compatible with legacy gh-webhook)
-/git-supervisor gh-webhook --secret MY_SECRET --script /scripts/check-push.sh
-
-# Custom port; secret from env var
-GITHUB_WEBHOOK_SECRET=MY_SECRET /git-supervisor gh-webhook --port 8080
+# Secret from env var
+GITHUB_WEBHOOK_SECRET=MY_SECRET /git-supervisor watch --webhook-port 8080
 ```
 
-It's the default command entry for docker image, will listen on :9870 port.
+If `--webhook-port` is set without a secret, the command exits with an argument error.
 
 ### Run git-supervisor cli to watch status of repos on multiple hosts
 
@@ -51,6 +49,25 @@ If want to run a timer loop instead of web-hook, need to:
 - Specify the **command** as `/git-supervisor watch ...` for docker-run
 - Additional args can be appended in above line
 - To prepare the proper defined **deployments.yaml** for the target repos
+
+#### Local mode (no deployments.yaml)
+
+When `watch` cannot find a config file (`--config`, `~/.config/git-supervisor/deployments.yaml`,
+or `./deployments.yaml`), it automatically falls back to local mode:
+
+- Runs embedded `check-push.sh` locally (no SSH)
+- Reuses `watch` flags: `--interval` and `--timeout`
+- `--interval 0` means run once and exit
+- Inherits `check-push.sh` env vars from current process (for example `DIR_BASE`, `BR_WHITELIST`, `LOGLEVEL`)
+- If `REPO_WHITELIST` is exported but empty, it is treated as unset
+
+```bash
+# Local one-shot run (no config file present)
+/git-supervisor watch --interval 0
+
+# Local loop every 60s, stop after 10 minutes
+/git-supervisor watch --interval 60 --timeout 600
+```
 
 ### (Legacy way) Run original shell script loop to check status of repos on local
 

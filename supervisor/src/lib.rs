@@ -464,6 +464,49 @@ pub async fn run_watch(
     Ok(())
 }
 
+/// Run check-push.sh on the local machine in a watch loop (no config file needed).
+/// All check-push.sh env vars (DIR_BASE, BR_WHITELIST, LOGLEVEL, etc.) are read from
+/// the process environment, exactly like running check-push.sh directly.
+/// interval_secs=0 means run once and exit.
+pub fn run_local_watch(interval_secs: u64, timeout_secs: Option<u64>) -> Result<(), anyhow::Error> {
+    let interval = Duration::from_secs(interval_secs);
+    let deadline = timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
+    let mut round: u64 = 0;
+
+    loop {
+        round += 1;
+        eprintln!("{}", console::info(format!("local watch round {}", round)));
+
+        if let Err(e) = ops::run_check_push_local(CHECK_PUSH_SCRIPT) {
+            eprintln!("{}", console::error(format!("Error: {}", e)));
+        }
+
+        if interval_secs == 0 {
+            break;
+        }
+
+        if let Some(d) = deadline {
+            let remaining = d.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                eprintln!("{}", console::info("watch timeout reached, stopping"));
+                break;
+            }
+            eprintln!("{}", console::info("waiting for next check ..."));
+            std::thread::sleep(remaining.min(interval));
+        } else {
+            eprintln!("{}", console::info("waiting for next check ..."));
+            std::thread::sleep(interval);
+        }
+
+        if deadline.map_or(false, |d| Instant::now() >= d) {
+            eprintln!("{}", console::info("watch timeout reached, stopping"));
+            break;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

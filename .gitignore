@@ -1,5 +1,4 @@
-*.egg-info
-dist/
+# temp testing env by scripts
 tests/work.test/
 
 # Rust

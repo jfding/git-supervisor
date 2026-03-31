@@ -1,32 +1,27 @@
 # Build stage for supervisor binary
-FROM rust:1.89-slim AS rust-builder
+FROM rust:1.94-slim AS rust-builder
 
 WORKDIR /build
 COPY supervisor/ /build/
 COPY src/check-push.sh /build/embed/check-push.sh
 COPY VERSION /build/VERSION
-RUN cargo build --release
+RUN rustup target add x86_64-unknown-linux-musl && \
+    apt-get update && apt-get install -y musl-tools && \
+    cargo build --release --target x86_64-unknown-linux-musl
 
 # Final stage
-FROM python:3.12-slim
+FROM alpine:latest
 
-# TODO: remove unused packages later
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    git \
-    openssh-client \
-    curl \
-    netcat-openbsd \
-    xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache git openssh-client tzdata ca-certificates bash
 
 # Copy supervisor binary from build stage
-COPY --from=rust-builder /build/target/release/git-supervisor /git-supervisor
+COPY --from=rust-builder /build/target/x86_64-unknown-linux-musl/release/git-supervisor /git-supervisor
 RUN chmod +x /git-supervisor
 
-WORKDIR /scripts
-COPY supervisor/deployments.sample.yaml /scripts/deployments.yaml
-COPY src/check-push.sh /scripts
-COPY VERSION /scripts/VERSION
+WORKDIR /work
 
-CMD ["/git-supervisor", "gh-webhook", "--script", "/scripts/check-push.sh"]
+# avoid the first time git fetch error without known_hosts in .ssh
+ENV GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
+
+ENV TIMER_INTERVAL=120
+CMD ["/bin/sh", "-c", "exec /git-supervisor watch --interval \"${TIMER_INTERVAL:-120}\""]

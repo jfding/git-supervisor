@@ -13,7 +13,7 @@ defaults:
 
 repos:
   tiny-repo:
-    git_url: https://github.com/git/git.git
+    git_url: https://github.com/jfding/todor.git
 
 hosts:
   local:

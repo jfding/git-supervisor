@@ -15,20 +15,29 @@ services:
 
         working_dir: /work
 
-        # uncomment this to run the check-push.sh script instead of web hook
-        #command: /scripts/check-push.sh
-
-        # uncomment this to run the git-supervisor
-        #command: /git-supervisor watch --interval 120
+        # default: local mode (no config file needed), polls every 120s
+        # DIR_BASE defaults to /work; git repos expected at /work/git_repos/
+        #
+        # uncomment to enable webhook mode (requires GITHUB_WEBHOOK_SECRET):
+        #command: ["/git-supervisor", "watch", "--webhook-port", "9870"]
+        #
+        # uncomment to use a config file for remote hosts:
+        #command: ["/git-supervisor", "watch", "-c", "/config/deployments.yaml"]
 
         environment:
             - TZ=Asia/Shanghai
             - FORCE_COLOR=1
+
+            # settings by ENV
             - LOGLEVEL=2
-               # default LOGLEVEL 2 means verbose
-            - GITHUB_WEBHOOK_SECRET=1234567890
-               # GITHUB_WEBHOOK_SECRET is required to run gh-webhook
-            #- TIMEOUT=120
-               # default timeout of possible pending cmd is 120s
-            #- SLEEP_TIME=360
-               # default sleep time is 360s
+               # 0=quiet 1=info 2=verbose 3=debug
+            - TIMER_INTERVAL=120
+               # default 120 seconds
+            #- DIR_BASE=/work
+               # base dir for git_repos/ and copies/ (default: /work)
+            #- BR_WHITELIST=main master dev test alpha
+               # space-separated branch whitelist
+            #- TIMEOUT=600
+               # timeout in seconds for long-running git ops
+            #- GITHUB_WEBHOOK_SECRET=changeme
+               # required only when using --webhook-port
