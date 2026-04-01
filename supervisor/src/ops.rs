@@ -13,6 +13,14 @@ fn escape_single_quoted(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Wrap a remote `printf` fragment so it completes and flushes before the next command.
+/// A bare builtin `printf` can leave the shell's stdout buffered; a subshell exits after
+/// `printf`, flushing its stdio, and stderr is usually unbuffered so status lines are not
+/// torn by `git` output or interleaved oddly when multiple SSH sessions share a terminal.
+fn shell_printf_flush(fragment: String) -> String {
+    format!("({}) >&2", fragment)
+}
+
 /// Check that `git` is available on the remote host (run `git --version`).
 pub fn check_git_available(host: &Host) -> Result<()> {
     ssh::ssh_run(host, "git --version > /dev/null 2>&1")
@@ -56,12 +64,15 @@ pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: b
 
     // Build remote command: cd to dir_repos, then clone if missing
     let command = if !ignore_missing {
-        let new_repo_line = console::shell_printf_inline(
+        let new_repo_line = shell_printf_flush(console::shell_printf_inline(
             &format!("    New repo [{}]: ", repo.name),
             Some(Color::Green),
-        );
-        let existing_repo_line =
-            console::shell_printf(&format!("    Existing repo [{}]: (ready)", repo.name), None);
+        ));
+        let existing_repo_line = shell_printf_flush(console::shell_printf(
+            &format!("    Existing repo [{}]: (ready)", repo.name),
+            None,
+        ));
+
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
@@ -72,14 +83,14 @@ fi",
             dir_esc, name_esc, new_repo_line, url_esc, name_esc, existing_repo_line,
         )
     } else {
-        let missing_repo_line = console::shell_printf(
+        let missing_repo_line = shell_printf_flush(console::shell_printf(
             &format!("    Missing repo [{}]: (ignored)", repo.name),
             Some(Color::Yellow),
-        );
-        let existing_repo_line = console::shell_printf(
+        ));
+        let existing_repo_line = shell_printf_flush(console::shell_printf(
             &format!("    Existing repo [{}]: (ready)", repo.name),
             Some(Color::Green),
-        );
+        ));
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
