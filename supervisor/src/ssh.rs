@@ -104,7 +104,6 @@ pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
     let identity = resolve_identity_file(host)?;
     let mut cmd = Command::new("ssh");
     cmd.arg("-o").arg("StrictHostKeyChecking=no");
-    cmd.arg("-o").arg("UserKnownHostsFile=/dev/null");
     if let Some(ref id) = identity {
         cmd.arg("-i").arg(expand_tilde(id));
     }
@@ -130,7 +129,6 @@ pub fn ssh_run_with_stdin(host: &Host, command: &str, stdin_data: &[u8]) -> Resu
     let identity = resolve_identity_file(host)?;
     let mut cmd = Command::new("ssh");
     cmd.arg("-o").arg("StrictHostKeyChecking=no");
-    cmd.arg("-o").arg("UserKnownHostsFile=/dev/null");
     if let Some(ref id) = identity {
         cmd.arg("-i").arg(expand_tilde(id));
     }

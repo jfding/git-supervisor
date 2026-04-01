@@ -250,7 +250,7 @@ pub fn remote_refs_fingerprint(repo_url: &str) -> Result<String> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         anyhow::bail!(
-            "git ls-remote failed: {}",
+            "git failed with status -\n{}",
             if stderr.is_empty() {
                 format!("exit {}", output.status)
             } else {

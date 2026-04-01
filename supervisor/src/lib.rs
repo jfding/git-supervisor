@@ -91,7 +91,7 @@ fn poll_changed_repos(
                 eprintln!(
                     "{}",
                     console::warning(format!(
-                        "watch probe failed for repo [{}]: {}",
+                        "checking failed for repo [{}]: {}",
                         repo_name, e
                     ))
                 );
@@ -378,7 +378,7 @@ fn run_cycle(
                     CHECK_PUSH_SCRIPT,
                     &check_push_env,
                 ) {
-                    eprintln!("{}", console::error(format!("Error: {}: {}", host_id, e)));
+                    eprintln!("{}", console::error(format!("Failed on {{{}}}: {}", host_id, e)));
                 }
             });
         }
