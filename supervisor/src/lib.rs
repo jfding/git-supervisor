@@ -76,7 +76,10 @@ fn poll_changed_repos(
     let mut changed_repos = HashSet::new();
     let mut failed_repos = HashSet::new();
 
+    eprintln!("{}", console::info("checking repos on controller node..."));
+
     for (repo_name, repo_def) in &config.repos {
+        eprintln!("{}", console::verbose(format!("checking repo [{}]: {}", repo_name, repo_def.git_url)));
         match ops::remote_refs_fingerprint(&repo_def.git_url) {
             Ok(fingerprint) => {
                 if last_refs.get(repo_name) != Some(&fingerprint) {
@@ -270,7 +273,6 @@ fn run_cycle(
         );
         (HashSet::new(), HashSet::new())
     } else {
-        let (changed, failed) = poll_changed_repos(config, last_remote_refs);
         eprintln!(
             "{}",
             console::info(format!(
@@ -279,6 +281,9 @@ fn run_cycle(
                 config.hosts.len()
             ))
         );
+
+        let (changed, failed) = poll_changed_repos(config, last_remote_refs);
+
         if !first_round {
             if changed.is_empty() {
                 eprintln!(

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::config::{Host, Repo};
 use crate::console::{self, Color};
@@ -21,17 +21,37 @@ fn shell_printf_flush(fragment: String) -> String {
     format!("({}) >&2", fragment)
 }
 
-/// Check that `git` is available on the remote host (run `git --version`).
-pub fn check_git_available(host: &Host) -> Result<()> {
-    ssh::ssh_run(host, "git --version > /dev/null 2>&1")
-        .context("git not found or not runnable on remote (is git installed?)")
+/// Check that `tool` exists on the host via `command -v`.
+/// Local targets run the check directly; remote targets use SSH.
+fn check_tool_available(host: &Host, tool: &str) -> Result<()> {
+    let cmd = format!("command -v {} > /dev/null 2>&1", tool);
+    if ssh::is_local_ssh_target(&host.ssh_target) {
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(&cmd)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .with_context(|| format!("{} not found locally", tool))?;
+        if status.success() {
+            Ok(())
+        } else {
+            anyhow::bail!("{} not found locally", tool);
+        }
+    } else {
+        ssh::ssh_run(host, &cmd)
+            .with_context(|| format!("{} not found on remote", tool))
+    }
 }
 
-/// Check that `docker` is available on the remote host (run `docker --version`).
-/// Returns Err if docker is not found or not runnable; used for optional warning only.
+/// Check that `git` is available on the host.
+pub fn check_git_available(host: &Host) -> Result<()> {
+    check_tool_available(host, "git")
+}
+
+/// Check that `docker` is available on the host.
 pub fn check_docker_available(host: &Host) -> Result<()> {
-    ssh::ssh_run(host, "docker --version > /dev/null 2>&1")
-        .context("docker not found or not runnable")
+    check_tool_available(host, "docker")
 }
 
 /// Create dir_repos and dir_copies on the remote host.

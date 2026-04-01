@@ -42,13 +42,6 @@ fn normalize_ssh_target_host(ssh_target: &str) -> String {
     host.to_ascii_lowercase()
 }
 
-fn is_local_ssh_target(ssh_target: &str) -> bool {
-    matches!(
-        normalize_ssh_target_host(ssh_target).as_str(),
-        "localhost" | "127.0.0.1" | "::1"
-    )
-}
-
 fn local_run(command: &str) -> Result<()> {
     let status = Command::new("sh")
         .arg("-lc")
@@ -92,6 +85,13 @@ fn resolve_identity_file(host: &Host) -> Result<Option<String>> {
         return Ok(Some(path.to_string_lossy().into_owned()));
     }
     Ok(host.ssh_identity_file.clone())
+}
+
+pub fn is_local_ssh_target(ssh_target: &str) -> bool {
+    matches!(
+        normalize_ssh_target_host(ssh_target).as_str(),
+        "localhost" | "127.0.0.1" | "::1"
+    )
 }
 
 /// Run a shell command on the remote host via SSH.
