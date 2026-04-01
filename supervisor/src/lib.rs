@@ -78,7 +78,11 @@ fn poll_changed_repos(
 
     eprintln!("{}", console::info("checking repos on controller node..."));
 
+    let referenced = config.repos_referenced_by_hosts();
     for (repo_name, repo_def) in &config.repos {
+        if !referenced.contains(repo_name) {
+            continue;
+        }
         eprintln!("{}", console::verbose(format!("checking repo [{}]: {}", repo_name, repo_def.git_url)));
         match ops::remote_refs_fingerprint(&repo_def.git_url) {
             Ok(fingerprint) => {
