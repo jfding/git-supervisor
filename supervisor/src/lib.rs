@@ -310,6 +310,7 @@ fn run_cycle(
         (changed, failed)
     };
 
+    let mut any_host_ran = false;
     std::thread::scope(|s| {
         for (host_id, host) in &config.hosts {
             let host_id = host_id.clone();
@@ -370,6 +371,7 @@ fn run_cycle(
             if !should_run_remote {
                 continue;
             }
+            any_host_ran = true;
             s.spawn(move || {
                 if let Err(e) = ops::run_check_push_remote(
                     host,
@@ -383,6 +385,10 @@ fn run_cycle(
             });
         }
     });
+
+    if any_host_ran {
+        eprintln!("{}", console::info(format!("watch round {} done", round)));
+    }
 }
 
 /// Prepare remotes (create dirs, init empty repos unless --ignore-missing), then run check-push
@@ -485,6 +491,8 @@ pub fn run_local_watch(interval_secs: u64, timeout_secs: Option<u64>) -> Result<
         if let Err(e) = ops::run_check_push_local(CHECK_PUSH_SCRIPT) {
             eprintln!("{}", console::error(format!("Error: {}", e)));
         }
+
+        eprintln!("{}", console::info(format!("local watch round {} done", round)));
 
         if interval_secs == 0 {
             break;
