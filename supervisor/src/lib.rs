@@ -76,7 +76,14 @@ fn poll_changed_repos(
     let mut changed_repos = HashSet::new();
     let mut failed_repos = HashSet::new();
 
+    eprintln!("{}", console::info("checking repos on controller node..."));
+
+    let referenced = config.repos_referenced_by_hosts();
     for (repo_name, repo_def) in &config.repos {
+        if !referenced.contains(repo_name) {
+            continue;
+        }
+        eprintln!("{}", console::verbose(format!("checking repo [{}]: {}", repo_name, repo_def.git_url)));
         match ops::remote_refs_fingerprint(&repo_def.git_url) {
             Ok(fingerprint) => {
                 if last_refs.get(repo_name) != Some(&fingerprint) {
@@ -88,7 +95,7 @@ fn poll_changed_repos(
                 eprintln!(
                     "{}",
                     console::warning(format!(
-                        "watch probe failed for repo [{}]: {}",
+                        "checking failed for repo [{}]: {}",
                         repo_name, e
                     ))
                 );
@@ -270,7 +277,6 @@ fn run_cycle(
         );
         (HashSet::new(), HashSet::new())
     } else {
-        let (changed, failed) = poll_changed_repos(config, last_remote_refs);
         eprintln!(
             "{}",
             console::info(format!(
@@ -279,6 +285,9 @@ fn run_cycle(
                 config.hosts.len()
             ))
         );
+
+        let (changed, failed) = poll_changed_repos(config, last_remote_refs);
+
         if !first_round {
             if changed.is_empty() {
                 eprintln!(
@@ -305,6 +314,7 @@ fn run_cycle(
         (changed, failed)
     };
 
+    let mut any_host_ran = false;
     std::thread::scope(|s| {
         for (host_id, host) in &config.hosts {
             let host_id = host_id.clone();
@@ -365,6 +375,7 @@ fn run_cycle(
             if !should_run_remote {
                 continue;
             }
+            any_host_ran = true;
             s.spawn(move || {
                 if let Err(e) = ops::run_check_push_remote(
                     host,
@@ -373,11 +384,15 @@ fn run_cycle(
                     CHECK_PUSH_SCRIPT,
                     &check_push_env,
                 ) {
-                    eprintln!("{}", console::error(format!("Error: {}: {}", host_id, e)));
+                    eprintln!("{}", console::error(format!("Failed on {{{}}}: {}", host_id, e)));
                 }
             });
         }
     });
+
+    if any_host_ran {
+        eprintln!("{}", console::info(format!("watch round {} done", round)));
+    }
 }
 
 /// Prepare remotes (create dirs, init empty repos unless --ignore-missing), then run check-push
@@ -481,6 +496,8 @@ pub fn run_local_watch(interval_secs: u64, timeout_secs: Option<u64>) -> Result<
             eprintln!("{}", console::error(format!("Error: {}", e)));
         }
 
+        eprintln!("{}", console::info(format!("local watch round {} done", round)));
+
         if interval_secs == 0 {
             break;
         }
@@ -498,7 +515,7 @@ pub fn run_local_watch(interval_secs: u64, timeout_secs: Option<u64>) -> Result<
             std::thread::sleep(interval);
         }
 
-        if deadline.map_or(false, |d| Instant::now() >= d) {
+        if deadline.is_some_and(|d| Instant::now() >= d) {
             eprintln!("{}", console::info("watch timeout reached, stopping"));
             break;
         }

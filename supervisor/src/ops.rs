@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::config::{Host, Repo};
 use crate::console::{self, Color};
@@ -13,17 +13,45 @@ fn escape_single_quoted(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-/// Check that `git` is available on the remote host (run `git --version`).
-pub fn check_git_available(host: &Host) -> Result<()> {
-    ssh::ssh_run(host, "git --version > /dev/null 2>&1")
-        .context("git not found or not runnable on remote (is git installed?)")
+/// Wrap a remote `printf` fragment so it completes and flushes before the next command.
+/// A bare builtin `printf` can leave the shell's stdout buffered; a subshell exits after
+/// `printf`, flushing its stdio, and stderr is usually unbuffered so status lines are not
+/// torn by `git` output or interleaved oddly when multiple SSH sessions share a terminal.
+fn shell_printf_flush(fragment: String) -> String {
+    format!("({}) >&2", fragment)
 }
 
-/// Check that `docker` is available on the remote host (run `docker --version`).
-/// Returns Err if docker is not found or not runnable; used for optional warning only.
+/// Check that `tool` exists on the host via `command -v`.
+/// Local targets run the check directly; remote targets use SSH.
+fn check_tool_available(host: &Host, tool: &str) -> Result<()> {
+    let cmd = format!("command -v {} > /dev/null 2>&1", tool);
+    if ssh::is_local_ssh_target(&host.ssh_target) {
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(&cmd)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .with_context(|| format!("{} not found locally", tool))?;
+        if status.success() {
+            Ok(())
+        } else {
+            anyhow::bail!("{} not found locally", tool);
+        }
+    } else {
+        ssh::ssh_run(host, &cmd)
+            .with_context(|| format!("{} not found on remote", tool))
+    }
+}
+
+/// Check that `git` is available on the host.
+pub fn check_git_available(host: &Host) -> Result<()> {
+    check_tool_available(host, "git")
+}
+
+/// Check that `docker` is available on the host.
 pub fn check_docker_available(host: &Host) -> Result<()> {
-    ssh::ssh_run(host, "docker --version > /dev/null 2>&1")
-        .context("docker not found or not runnable")
+    check_tool_available(host, "docker")
 }
 
 /// Create dir_repos and dir_copies on the remote host.
@@ -56,12 +84,15 @@ pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: b
 
     // Build remote command: cd to dir_repos, then clone if missing
     let command = if !ignore_missing {
-        let new_repo_line = console::shell_printf_inline(
+        let new_repo_line = shell_printf_flush(console::shell_printf_inline(
             &format!("    New repo [{}]: ", repo.name),
             Some(Color::Green),
-        );
-        let existing_repo_line =
-            console::shell_printf(&format!("    Existing repo [{}]: (ready)", repo.name), None);
+        ));
+        let existing_repo_line = shell_printf_flush(console::shell_printf(
+            &format!("    Existing repo [{}]: (ready)", repo.name),
+            None,
+        ));
+
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
@@ -72,14 +103,14 @@ fi",
             dir_esc, name_esc, new_repo_line, url_esc, name_esc, existing_repo_line,
         )
     } else {
-        let missing_repo_line = console::shell_printf(
+        let missing_repo_line = shell_printf_flush(console::shell_printf(
             &format!("    Missing repo [{}]: (ignored)", repo.name),
             Some(Color::Yellow),
-        );
-        let existing_repo_line = console::shell_printf(
+        ));
+        let existing_repo_line = shell_printf_flush(console::shell_printf(
             &format!("    Existing repo [{}]: (ready)", repo.name),
             Some(Color::Green),
-        );
+        ));
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
@@ -219,8 +250,7 @@ pub fn remote_refs_fingerprint(repo_url: &str) -> Result<String> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         anyhow::bail!(
-            "git ls-remote failed for {}: {}",
-            repo_url,
+            "git failed with status -\n{}",
             if stderr.is_empty() {
                 format!("exit {}", output.status)
             } else {

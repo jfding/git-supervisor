@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::{fs, path::PathBuf};
 
@@ -160,6 +160,14 @@ impl CentralConfig {
     /// dir_copies = dir_base / "copies"
     pub fn dir_copies_for_host(&self, host_id: &str) -> PathBuf {
         self.dir_base_for_host(host_id).join("copies")
+    }
+
+    /// Repo names listed in at least one host's `repos` (top-level `repos` entries with no host never appear here).
+    pub fn repos_referenced_by_hosts(&self) -> HashSet<String> {
+        self.hosts
+            .values()
+            .flat_map(|h| h.repos.iter().map(|r| r.name().to_string()))
+            .collect()
     }
 }
 

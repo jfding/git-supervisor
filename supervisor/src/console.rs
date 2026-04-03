@@ -5,6 +5,7 @@ pub enum Color {
     Red,
     Yellow,
     Green,
+    Grey,
     Blue,
 }
 
@@ -32,6 +33,7 @@ pub fn paint(text: impl AsRef<str>, color: Color) -> String {
         Color::Red => 31,
         Color::Yellow => 33,
         Color::Green => 32,
+        Color::Grey => 90,
         Color::Blue => 34,
     };
 
@@ -50,6 +52,10 @@ pub fn highlight(text: impl AsRef<str>) -> String {
     paint(text, Color::Green)
 }
 
+pub fn verbose(text: impl AsRef<str>) -> String {
+    paint(text, Color::Grey)
+}
+
 pub fn info(text: impl AsRef<str>) -> String {
     paint(text, Color::Blue)
 }
@@ -61,6 +67,7 @@ pub fn shell_printf(text: &str, color: Option<Color>) -> String {
         Some(Color::Yellow) => "\\033[33m%s\\033[0m\\n",
         Some(Color::Green) => "\\033[32m%s\\033[0m\\n",
         Some(Color::Blue) => "\\033[34m%s\\033[0m\\n",
+        Some(Color::Grey) => "\\033[90m%s\\033[0m\\n",
         None => "%s\\n",
     };
 
@@ -74,6 +81,7 @@ pub fn shell_printf_inline(text: &str, color: Option<Color>) -> String {
         Some(Color::Yellow) => "\\033[33m%s\\033[0m",
         Some(Color::Green) => "\\033[32m%s\\033[0m",
         Some(Color::Blue) => "\\033[34m%s\\033[0m",
+        Some(Color::Grey) => "\\033[90m%s\\033[0m",
         None => "%s",
     };
 

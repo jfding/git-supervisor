@@ -42,13 +42,6 @@ fn normalize_ssh_target_host(ssh_target: &str) -> String {
     host.to_ascii_lowercase()
 }
 
-fn is_local_ssh_target(ssh_target: &str) -> bool {
-    matches!(
-        normalize_ssh_target_host(ssh_target).as_str(),
-        "localhost" | "127.0.0.1" | "::1"
-    )
-}
-
 fn local_run(command: &str) -> Result<()> {
     let status = Command::new("sh")
         .arg("-lc")
@@ -94,6 +87,13 @@ fn resolve_identity_file(host: &Host) -> Result<Option<String>> {
     Ok(host.ssh_identity_file.clone())
 }
 
+pub fn is_local_ssh_target(ssh_target: &str) -> bool {
+    matches!(
+        normalize_ssh_target_host(ssh_target).as_str(),
+        "localhost" | "127.0.0.1" | "::1"
+    )
+}
+
 /// Run a shell command on the remote host via SSH.
 /// `command` is the full shell snippet executed on the remote (e.g. "mkdir -p /work/git_repos").
 pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
@@ -103,6 +103,7 @@ pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
 
     let identity = resolve_identity_file(host)?;
     let mut cmd = Command::new("ssh");
+    cmd.arg("-o").arg("StrictHostKeyChecking=no");
     if let Some(ref id) = identity {
         cmd.arg("-i").arg(expand_tilde(id));
     }
@@ -127,6 +128,7 @@ pub fn ssh_run_with_stdin(host: &Host, command: &str, stdin_data: &[u8]) -> Resu
 
     let identity = resolve_identity_file(host)?;
     let mut cmd = Command::new("ssh");
+    cmd.arg("-o").arg("StrictHostKeyChecking=no");
     if let Some(ref id) = identity {
         cmd.arg("-i").arg(expand_tilde(id));
     }

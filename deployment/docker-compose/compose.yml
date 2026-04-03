@@ -7,22 +7,24 @@ services:
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - /usr/bin/docker:/usr/bin/docker
+
+            # for git access in local
+            - ./ssh_keys:/root/.ssh
+
             - ./work:/work
-            - ./keys:/root/.ssh
+
+            # prepare this config file and mount to run in remote control mode
+            # otherwise, local mode will be used (same as run check-push.sh directly)
+            #- ./deployments.yaml:/work/deployments.yaml
 
         ports:
             - 9870:9870
 
         working_dir: /work
 
-        # default: local mode (no config file needed), polls every 120s
-        # DIR_BASE defaults to /work; git repos expected at /work/git_repos/
-        #
-        # uncomment to enable webhook mode (requires GITHUB_WEBHOOK_SECRET):
+        # uncomment to enable webhook listener (requires GITHUB_WEBHOOK_SECRET)
+        # ONLY for remote control mode:
         #command: ["/git-supervisor", "watch", "--webhook-port", "9870"]
-        #
-        # uncomment to use a config file for remote hosts:
-        #command: ["/git-supervisor", "watch", "-c", "/config/deployments.yaml"]
 
         environment:
             - TZ=Asia/Shanghai
