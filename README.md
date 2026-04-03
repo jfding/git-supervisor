@@ -2,9 +2,7 @@
 
 ## Contents
 
-- supervisor: central supervisor to control all remote hosts and repos, including a built-in GitHub webhook server (`gh-webhook` subcommand)
-- `src/check-push.sh`: **main** logic of the engine, can be called by web hook or by timer loop
-  check-push.sh shell script to have one-shot check.
+git-supervisor: central controller to manage git repos deployments on remote hosts
 
 ## Download released binaries
 
@@ -21,15 +19,18 @@ xattr -c git-supervisor
 
 ## Usage
 
-### Run by Docker
+### Command `watch`
 
-- Sample settings in docker-compose.yml in the code tree.
-- Volume <work> to store all the data: git_repos, (code)copies, scripts.
-- Volumn <keys> to store the ssh keys to access github.com repos.
+Run git-supervisor cli to watch status of repos on multiple hosts
 
-### Webhook mode for GitHub repos
+- Specify the **command** as `/git-supervisor watch ...` for docker-run
+- Additional args can be appended in above line
+- To prepare the proper defined **deployments.yaml** for the target repos
 
-Webhook serving is now part of `watch` mode (no standalone `gh-webhook` subcommand).
+#### Github Webhook settings
+
+Webhook serving is now part of `watch` command, to enable it by:
+
 Use `watch` with `--webhook-port` and a secret (`--webhook-secret` or `GITHUB_WEBHOOK_SECRET`).
 
 ```bash
@@ -41,14 +42,6 @@ GITHUB_WEBHOOK_SECRET=MY_SECRET /git-supervisor watch --webhook-port 8080
 ```
 
 If `--webhook-port` is set without a secret, the command exits with an argument error.
-
-### Run git-supervisor cli to watch status of repos on multiple hosts
-
-If want to run a timer loop instead of web-hook, need to:
-
-- Specify the **command** as `/git-supervisor watch ...` for docker-run
-- Additional args can be appended in above line
-- To prepare the proper defined **deployments.yaml** for the target repos
 
 #### Local mode (no deployments.yaml)
 
@@ -69,15 +62,18 @@ or `./deployments.yaml`), it automatically falls back to local mode:
 /git-supervisor watch --interval 60 --timeout 600
 ```
 
-### (Legacy way) Run original shell script loop to check status of repos on local
+#### Run by Docker
+
+- Sample settings in docker-compose.yml in the code tree.
+- Volume <work> to store all the data: git_repos, (code)copies, scripts.
+- Volumn <keys> to store the ssh keys to access github.com repos.
+
+#### (Legacy) Run original shell script loop to check status of repos on local
 
 - Must set SLEEP_TIME env for docker-run, to specify the timeout values(seconds)
 - Specify the **command** as `/srcripts/check-push.sh` for docker-run
 - If no SLEEP_TIME env, the script will be run as one-shot checking.
-
-#### ENV Configuration (check-push.sh)
-
-- **BR_WHITELIST**: Space-separated branch names to track and copy by default (e.g. `main master dev`). Override via env; default in script: `main master dev test alpha`. Whitelisted branches get their copy dir created and populated on first run; other branches are only tracked if a copy dir already exists (and then start with a `.skipping` flag until you remove it).
+- ENV **BR_WHITELIST**: Space-separated branch names to track and copy by default (e.g. `main master dev`). Override via env; default in script: `main master dev test alpha`. Whitelisted branches get their copy dir created and populated on first run; other branches are only tracked if a copy dir already exists (and then start with a `.skipping` flag until you remove it).
 
 #### Docker restart pre/post hook jobs
 
@@ -96,10 +92,6 @@ Hook job scripts are executed with `bash`, from the copy directory as working di
 - `DOCKER_HOOK_STAGE` (`pre` or `post`)
 - `DOCKER_NAME` (container name from `*.docker`)
 - `DOCKER_HOOK_FILE` (resolved hook script path)
-
-#### Init working git repos manually (without git-supervisor cli)
-
-In HOST, under the path *<work-volume>/git_repos/*, just use the regular `git clone` the target repos.
 
 ## Development
 
@@ -120,7 +112,6 @@ The logic in the central check-push.sh script:
 The project uses a single source of truth for version: the **`VERSION`** file at the repo root (e.g. `1.0.0`).
 
 - **Scripts**: Run `check-push.sh --version` / `-V` prints it. In the Docker image, `VERSION` is copied to `/scripts/VERSION`.
-- **gh-webhook** (legacy Python): Reads version from `/scripts/VERSION` at runtime. `GET /version` returns `{"version": "1.0.0"}`; webhook responses include `version` when available.
 - **supervisor** (Rust): Build reads `VERSION` from the repo root and sets the binary version; `supervisor --version` shows it. The `gh-webhook` subcommand serves `GET /version` and includes `version` in webhook responses. If `VERSION` is missing, `Cargo.toml` package version is used.
 
 To set the version everywhere (e.g. for a release), run:
@@ -129,7 +120,7 @@ To set the version everywhere (e.g. for a release), run:
 ./scripts/set-version.sh 1.2.3
 ```
 
-This updates `VERSION`, `supervisor/Cargo.toml`, and `gh-webhook/pyproject.toml`.
+This updates `VERSION`, `supervisor/Cargo.toml`, etc.
 
 ### how to test
 
