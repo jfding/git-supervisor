@@ -104,6 +104,9 @@ pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
     let identity = resolve_identity_file(host)?;
     let mut cmd = Command::new("ssh");
     cmd.arg("-o").arg("StrictHostKeyChecking=no");
+    if host.ssh_forward_agent == Some(true) {
+        cmd.arg("-A");
+    }
     if let Some(ref id) = identity {
         cmd.arg("-i").arg(expand_tilde(id));
     }
@@ -129,6 +132,9 @@ pub fn ssh_run_with_stdin(host: &Host, command: &str, stdin_data: &[u8]) -> Resu
     let identity = resolve_identity_file(host)?;
     let mut cmd = Command::new("ssh");
     cmd.arg("-o").arg("StrictHostKeyChecking=no");
+    if host.ssh_forward_agent == Some(true) {
+        cmd.arg("-A");
+    }
     if let Some(ref id) = identity {
         cmd.arg("-i").arg(expand_tilde(id));
     }
@@ -166,6 +172,8 @@ mod tests {
             ssh_port: None,
             ssh_identity_file: None,
             ssh_key_name: None,
+            github_ssh_key: None,
+            ssh_forward_agent: None,
             dir_base: None,
             repos: Vec::<HostRepoRef>::new(),
             release_count: None,

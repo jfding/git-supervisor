@@ -61,6 +61,13 @@ pub struct Host {
     /// Bare filename to look up in managed key dirs (~/.config/git-supervisor/keys/ then ~/.ssh/).
     /// Takes precedence over `ssh_identity_file` when both are set.
     pub ssh_key_name: Option<String>,
+    /// SSH key path **on the remote host** used for GitHub access (sets GIT_SSH_COMMAND).
+    /// Supports `~` prefix (expanded on the remote). Applied to all git operations on the host.
+    pub github_ssh_key: Option<String>,
+    /// Forward the local SSH agent to the remote host (`ssh -A`).
+    /// Allows git operations on the remote to authenticate via the controller's agent
+    /// without placing any key on the remote host.
+    pub ssh_forward_agent: Option<bool>,
     pub dir_base: Option<String>,
     /// List of repo refs (name or { name, branches? }). Must exist in top-level `repos`.
     #[serde(default)]
@@ -83,12 +90,30 @@ pub struct RepoDef {
     pub git_url: String,
 }
 
+/// Extract the directory name from a git URL by taking the last path/colon segment
+/// and stripping a trailing `.git` suffix.
+///
+/// Examples: `git@github.com:org/webapp.git` → `"webapp"`,
+///           `https://github.com/org/my-repo` → `"my-repo"`.
+pub fn dir_name_from_url(url: &str) -> &str {
+    let last = url.rsplit(|c| c == '/' || c == ':').next().unwrap_or(url);
+    last.strip_suffix(".git").unwrap_or(last)
+}
+
 /// Resolved repo: name + definition, used when operating on a host. Branches come from host repo entry or defaults.
 #[derive(Debug, Clone)]
 pub struct Repo {
+    /// Config alias (key in the `repos` map). Used for host→repo references only.
     pub name: String,
     pub git_url: String,
     pub branches: Option<Vec<String>>,
+}
+
+impl Repo {
+    /// Directory name on the remote host, derived from the git URL (not the config alias).
+    pub fn dir_name(&self) -> &str {
+        dir_name_from_url(&self.git_url)
+    }
 }
 
 impl CentralConfig {
@@ -174,6 +199,26 @@ impl CentralConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dir_name_from_url_ssh_with_git_suffix() {
+        assert_eq!(dir_name_from_url("git@github.com:org/webapp.git"), "webapp");
+    }
+
+    #[test]
+    fn dir_name_from_url_https_with_git_suffix() {
+        assert_eq!(dir_name_from_url("https://github.com/org/my-repo.git"), "my-repo");
+    }
+
+    #[test]
+    fn dir_name_from_url_no_git_suffix() {
+        assert_eq!(dir_name_from_url("https://github.com/org/webapp"), "webapp");
+    }
+
+    #[test]
+    fn dir_name_from_url_local_path() {
+        assert_eq!(dir_name_from_url("/srv/repos/project.git"), "project");
+    }
 
     #[test]
     fn parse_minimal_yaml() {

@@ -46,3 +46,21 @@ hosts:
         branches: [main, dev]
       - name: webapp
         branches: [main, release]
+
+  # Host using SSH agent forwarding for GitHub access.
+  # The controller's SSH agent is forwarded (ssh -A) so the remote host can clone/fetch
+  # from GitHub without any key stored on the remote machine.
+  # Prerequisite: the GitHub key must be loaded in the controller's agent beforehand:
+  #   ssh-add ~/.ssh/github_key
+  agent-forward-server:
+    ssh_target: deploy@agent-forward.example.com
+    ssh_forward_agent: true
+    repos: [webapp]
+
+  # Host with a pre-placed GitHub SSH key on the remote machine.
+  # Use this when agent forwarding is not available (e.g. jump hosts, locked-down environments).
+  # The key path is on the remote host; ~/... is expanded by the remote shell.
+  static-key-server:
+    ssh_target: deploy@static-key.example.com
+    github_ssh_key: ~/.ssh/github_deploy_key  # path on the remote host
+    repos: [webapp]

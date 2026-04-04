@@ -64,51 +64,52 @@ pub fn create_dirs(host: &Host, dir_repos: &Path, dir_copies: &Path) -> Result<(
 
 /// Ensure the repo exists on the remote: clone if missing unless `ignore_missing` is true
 /// dir_repos is the path to the git_repos directory on the remote.
-pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: bool) -> Result<()> {
+/// `github_ssh_key` is an optional path (on the remote host) to the SSH key used for GitHub access.
+pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: bool, github_ssh_key: Option<&str>) -> Result<()> {
     // Sanitize: name and git_url must not be used in shell eval. We pass them as
     // arguments to a single-quoted script fragment. The only way to get out of
     // single quotes is a closing quote, so we must not allow ' in name or git_url
     // when we embed them, or we escape. Use double quotes on remote and escape
     // any " and $ and ` and \ in the values.
     let dir = dir_repos.to_string_lossy();
-    let name = &repo.name;
+    // Use the name derived from the git URL as the clone directory, not the config alias.
+    let clone_dir = repo.dir_name();
     let url = &repo.git_url;
-    // Avoid injection: run a small script that uses the variables. We pass name and url
-    // via the command string but we need to escape for the remote shell.
-    // Simpler: use single-quoted script and close quote + pass safe args.
-    // ssh host 'cd /work/git_repos && if [ ! -d name/.git ]; then git clone url name; else cd name && git fetch --all --tags --prune; fi'
-    // So we need name and url substituted. If name/url contain ' we break. Replace ' in name/url with '\'' for remote.
-    let name_esc = name.replace('\'', "'\\''");
+    let clone_dir_esc = clone_dir.replace('\'', "'\\''");
     let url_esc = url.replace('\'', "'\\''");
     let dir_esc = dir.replace('\'', "'\\''");
+    // Prefix for git commands: sets GIT_SSH_COMMAND when a GitHub key is provided.
+    let git_prefix = github_ssh_key
+        .map(|k| shell_git_ssh_command_prefix(k))
+        .unwrap_or_default();
 
     // Build remote command: cd to dir_repos, then clone if missing
     let command = if !ignore_missing {
         let new_repo_line = shell_printf_flush(console::shell_printf_inline(
-            &format!("    New repo [{}]: ", repo.name),
+            &format!("    New repo [{}]: ", clone_dir),
             Some(Color::Green),
         ));
         let existing_repo_line = shell_printf_flush(console::shell_printf(
-            &format!("    Existing repo [{}]: (ready)", repo.name),
+            &format!("    Existing repo [{}]: (ready)", clone_dir),
             None,
         ));
 
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
-  {}; git clone '{}' '{}'; \
+  {}; {}git clone '{}' '{}'; \
 else \
   {}; \
 fi",
-            dir_esc, name_esc, new_repo_line, url_esc, name_esc, existing_repo_line,
+            dir_esc, clone_dir_esc, new_repo_line, git_prefix, url_esc, clone_dir_esc, existing_repo_line,
         )
     } else {
         let missing_repo_line = shell_printf_flush(console::shell_printf(
-            &format!("    Missing repo [{}]: (ignored)", repo.name),
+            &format!("    Missing repo [{}]: (ignored)", clone_dir),
             Some(Color::Yellow),
         ));
         let existing_repo_line = shell_printf_flush(console::shell_printf(
-            &format!("    Existing repo [{}]: (ready)", repo.name),
+            &format!("    Existing repo [{}]: (ready)", clone_dir),
             Some(Color::Green),
         ));
         format!(
@@ -118,12 +119,34 @@ if [ ! -d '{}/.git' ]; then \
 else \
   {}; \
 fi",
-            dir_esc, name_esc, missing_repo_line, existing_repo_line,
+            dir_esc, clone_dir_esc, missing_repo_line, existing_repo_line,
         )
     };
 
     ssh::ssh_run(host, &command)
         .with_context(|| format!("clone & [optional]fetch {} failed", repo.name))
+}
+
+/// Build a `GIT_SSH_COMMAND` assignment for the remote shell that forces git to use `key`.
+/// Leading `~/` is converted to `$HOME/` so the remote shell expands it correctly.
+/// The result is ready to prepend to a shell command, e.g. `"<result> git clone ..."`.
+fn shell_git_ssh_command_prefix(key: &str) -> String {
+    let key_path = if key.starts_with("~/") {
+        format!("$HOME/{}", &key[2..])
+    } else if key == "~" {
+        "$HOME".to_string()
+    } else {
+        key.to_string()
+    };
+    // Escape for a double-quoted shell string (allow $HOME to expand).
+    let escaped = key_path
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('`', "\\`");
+    format!(
+        "GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=no -i {}\" ",
+        escaped
+    )
 }
 
 /// Sandbox env defaults for running check-push.sh on the remote (one-shot, no daemon loop).
@@ -140,6 +163,8 @@ pub struct CheckPushEnv {
     pub release_tag_topn: Option<u32>,
     pub release_tag_pattern: Option<String>,
     pub release_tag_exclude_pattern: Option<String>,
+    /// SSH key path on the remote host used for GitHub access (sets GIT_SSH_COMMAND).
+    pub github_ssh_key: Option<String>,
 }
 
 fn build_check_push_extra_env(env: &CheckPushEnv) -> String {
@@ -163,6 +188,19 @@ fn build_check_push_extra_env(env: &CheckPushEnv) -> String {
         env_parts.push(format!(
             "RELEASE_TAG_EXCLUDE_PATTERN={}",
             escape_single_quoted(s)
+        ));
+    }
+    if let Some(key) = &env.github_ssh_key {
+        // Use double-quote form so that $HOME (from ~/...) is expanded on the remote shell.
+        let key_path = if key.starts_with("~/") {
+            format!("$HOME/{}", &key[2..])
+        } else {
+            key.clone()
+        };
+        let escaped_path = key_path.replace('\\', "\\\\").replace('"', "\\\"").replace('`', "\\`");
+        env_parts.push(format!(
+            "GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=no -i {}\"",
+            escaped_path
         ));
     }
     if env_parts.is_empty() {
@@ -223,6 +261,8 @@ pub fn run_check_push_local(script: &str) -> Result<()> {
         ssh_port: None,
         ssh_identity_file: None,
         ssh_key_name: None,
+        github_ssh_key: None,
+        ssh_forward_agent: None,
         dir_base: None,
         repos: vec![],
         release_count: None,

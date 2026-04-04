@@ -42,14 +42,14 @@ fn whitelists_from_config(
 
     let repo_whitelist: String = repos
         .iter()
-        .map(|r| r.name.clone())
+        .map(|r| r.dir_name().to_string())
         .collect::<Vec<_>>()
         .join(" ");
     let br_whitelist_per_host = repos
         .iter()
         .filter_map(|r| {
             let branches = r.branches.as_deref().or(default_branches)?;
-            let mut s = r.name.clone();
+            let mut s = r.dir_name().to_string();
             for br in branches {
                 s.push(' ');
                 s.push_str(br);
@@ -131,7 +131,7 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
     for (host_id, host) in &config.hosts {
         eprintln!(
             "{}",
-            console::highlight(format!("Check host {{ {} }} -->", host_id))
+            console::info(format!("Check host {{ {} }} -->", host_id))
         );
 
         if let Err(e) = ops::check_git_available(host).context("check git/ssh available") {
@@ -146,11 +146,11 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
         let dir_repos = config.dir_repos_for_host(host_id);
 
         for repo in config.repos_for_host(host_id) {
-            let repo_dir = dir_repos.join(&repo.name);
+            let repo_dir = dir_repos.join(repo.dir_name());
             let repo_dir_str = repo_dir.to_string_lossy();
             let repo_dir_esc = format!("'{}'", escape_single_quoted(&repo_dir_str));
             let ok_line = console::shell_printf(
-                &format!("OK repo [{}] at {}", repo.name, repo_dir_str),
+                &format!("READY repo [{}] at {}", repo.name, repo_dir_str),
                 Some(console::Color::Green),
             );
             let missing_line = console::shell_printf(
@@ -228,7 +228,7 @@ fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyho
         }
 
         for repo in config.repos_for_host(host_id) {
-            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, ignore_missing) {
+            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, ignore_missing, host.github_ssh_key.as_deref()) {
                 eprintln!(
                     "{}",
                     console::error(format!("Error {{ {} }}: {} (continuing)", host_id, e))
@@ -333,6 +333,7 @@ fn run_cycle(
                 release_tag_topn: host.release_count,
                 release_tag_pattern: host.release_tag_pattern.clone(),
                 release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
+                github_ssh_key: host.github_ssh_key.clone(),
             };
 
             // Webhook-triggered cycles always run all hosts

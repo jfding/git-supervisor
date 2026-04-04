@@ -1,13 +1,15 @@
 # Build stage for supervisor binary
 FROM rust:1.94-slim AS rust-builder
 
+RUN rustup target add x86_64-unknown-linux-musl && \
+    apt-get update && apt-get install -y musl-tools
+
 WORKDIR /build
 COPY supervisor/ /build/
 COPY src/check-push.sh /build/embed/check-push.sh
 COPY VERSION /build/VERSION
-RUN rustup target add x86_64-unknown-linux-musl && \
-    apt-get update && apt-get install -y musl-tools && \
-    cargo build --release --target x86_64-unknown-linux-musl
+
+RUN  cargo build --release --target x86_64-unknown-linux-musl
 
 # Final stage
 FROM alpine:3.23
