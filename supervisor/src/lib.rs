@@ -228,7 +228,7 @@ fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyho
         }
 
         for repo in config.repos_for_host(host_id) {
-            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, ignore_missing) {
+            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, ignore_missing, host.github_ssh_key.as_deref()) {
                 eprintln!(
                     "{}",
                     console::error(format!("Error {{ {} }}: {} (continuing)", host_id, e))
@@ -333,6 +333,7 @@ fn run_cycle(
                 release_tag_topn: host.release_count,
                 release_tag_pattern: host.release_tag_pattern.clone(),
                 release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
+                github_ssh_key: host.github_ssh_key.clone(),
             };
 
             // Webhook-triggered cycles always run all hosts

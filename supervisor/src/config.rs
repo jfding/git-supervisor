@@ -61,6 +61,13 @@ pub struct Host {
     /// Bare filename to look up in managed key dirs (~/.config/git-supervisor/keys/ then ~/.ssh/).
     /// Takes precedence over `ssh_identity_file` when both are set.
     pub ssh_key_name: Option<String>,
+    /// SSH key path **on the remote host** used for GitHub access (sets GIT_SSH_COMMAND).
+    /// Supports `~` prefix (expanded on the remote). Applied to all git operations on the host.
+    pub github_ssh_key: Option<String>,
+    /// Forward the local SSH agent to the remote host (`ssh -A`).
+    /// Allows git operations on the remote to authenticate via the controller's agent
+    /// without placing any key on the remote host.
+    pub ssh_forward_agent: Option<bool>,
     pub dir_base: Option<String>,
     /// List of repo refs (name or { name, branches? }). Must exist in top-level `repos`.
     #[serde(default)]

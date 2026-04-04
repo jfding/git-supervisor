@@ -64,7 +64,8 @@ pub fn create_dirs(host: &Host, dir_repos: &Path, dir_copies: &Path) -> Result<(
 
 /// Ensure the repo exists on the remote: clone if missing unless `ignore_missing` is true
 /// dir_repos is the path to the git_repos directory on the remote.
-pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: bool) -> Result<()> {
+/// `github_ssh_key` is an optional path (on the remote host) to the SSH key used for GitHub access.
+pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: bool, github_ssh_key: Option<&str>) -> Result<()> {
     // Sanitize: name and git_url must not be used in shell eval. We pass them as
     // arguments to a single-quoted script fragment. The only way to get out of
     // single quotes is a closing quote, so we must not allow ' in name or git_url
@@ -81,6 +82,10 @@ pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: b
     let name_esc = name.replace('\'', "'\\''");
     let url_esc = url.replace('\'', "'\\''");
     let dir_esc = dir.replace('\'', "'\\''");
+    // Prefix for git commands: sets GIT_SSH_COMMAND when a GitHub key is provided.
+    let git_prefix = github_ssh_key
+        .map(|k| shell_git_ssh_command_prefix(k))
+        .unwrap_or_default();
 
     // Build remote command: cd to dir_repos, then clone if missing
     let command = if !ignore_missing {
@@ -96,11 +101,11 @@ pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: b
         format!(
             "cd '{}' && \
 if [ ! -d '{}/.git' ]; then \
-  {}; git clone '{}' '{}'; \
+  {}; {}git clone '{}' '{}'; \
 else \
   {}; \
 fi",
-            dir_esc, name_esc, new_repo_line, url_esc, name_esc, existing_repo_line,
+            dir_esc, name_esc, new_repo_line, git_prefix, url_esc, name_esc, existing_repo_line,
         )
     } else {
         let missing_repo_line = shell_printf_flush(console::shell_printf(
@@ -126,6 +131,28 @@ fi",
         .with_context(|| format!("clone & [optional]fetch {} failed", repo.name))
 }
 
+/// Build a `GIT_SSH_COMMAND` assignment for the remote shell that forces git to use `key`.
+/// Leading `~/` is converted to `$HOME/` so the remote shell expands it correctly.
+/// The result is ready to prepend to a shell command, e.g. `"<result> git clone ..."`.
+fn shell_git_ssh_command_prefix(key: &str) -> String {
+    let key_path = if key.starts_with("~/") {
+        format!("$HOME/{}", &key[2..])
+    } else if key == "~" {
+        "$HOME".to_string()
+    } else {
+        key.to_string()
+    };
+    // Escape for a double-quoted shell string (allow $HOME to expand).
+    let escaped = key_path
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('`', "\\`");
+    format!(
+        "GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=no -i {}\" ",
+        escaped
+    )
+}
+
 /// Sandbox env defaults for running check-push.sh on the remote (one-shot, no daemon loop).
 const CHECK_PUSH_VERB: u8 = 1;
 const CHECK_PUSH_TIMEOUT: u32 = 600;
@@ -140,6 +167,8 @@ pub struct CheckPushEnv {
     pub release_tag_topn: Option<u32>,
     pub release_tag_pattern: Option<String>,
     pub release_tag_exclude_pattern: Option<String>,
+    /// SSH key path on the remote host used for GitHub access (sets GIT_SSH_COMMAND).
+    pub github_ssh_key: Option<String>,
 }
 
 fn build_check_push_extra_env(env: &CheckPushEnv) -> String {
@@ -163,6 +192,19 @@ fn build_check_push_extra_env(env: &CheckPushEnv) -> String {
         env_parts.push(format!(
             "RELEASE_TAG_EXCLUDE_PATTERN={}",
             escape_single_quoted(s)
+        ));
+    }
+    if let Some(key) = &env.github_ssh_key {
+        // Use double-quote form so that $HOME (from ~/...) is expanded on the remote shell.
+        let key_path = if key.starts_with("~/") {
+            format!("$HOME/{}", &key[2..])
+        } else {
+            key.clone()
+        };
+        let escaped_path = key_path.replace('\\', "\\\\").replace('"', "\\\"").replace('`', "\\`");
+        env_parts.push(format!(
+            "GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=no -i {}\"",
+            escaped_path
         ));
     }
     if env_parts.is_empty() {
@@ -223,6 +265,8 @@ pub fn run_check_push_local(script: &str) -> Result<()> {
         ssh_port: None,
         ssh_identity_file: None,
         ssh_key_name: None,
+        github_ssh_key: None,
+        ssh_forward_agent: None,
         dir_base: None,
         repos: vec![],
         release_count: None,
