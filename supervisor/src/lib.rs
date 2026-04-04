@@ -303,15 +303,15 @@ fn run_cycle(
             if changed.is_empty() {
                 eprintln!(
                     "{}",
-                    console::info("watch: no upstream repo changes detected in this round")
+                    console::highlight("watch: no upstream repo changes detected in this round")
                 );
             } else {
                 let mut changed_sorted: Vec<_> = changed.iter().cloned().collect();
                 changed_sorted.sort();
                 eprintln!(
                     "{}",
-                    console::info(format!(
-                        "watch: upstream repo change detected: {}",
+                    console::highlight(format!(
+                        "watch: upstream repo change detected: [{}]",
                         changed_sorted.join(", ")
                     ))
                 );
@@ -319,7 +319,7 @@ fn run_cycle(
         } else {
             eprintln!(
                 "{}",
-                console::info("watch: initial round, running remote check-push for all hosts")
+                console::highlight("watch: initial round, running remote check-push for all hosts")
             );
         }
         (changed, failed)
