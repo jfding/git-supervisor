@@ -72,14 +72,10 @@ pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: b
     // when we embed them, or we escape. Use double quotes on remote and escape
     // any " and $ and ` and \ in the values.
     let dir = dir_repos.to_string_lossy();
-    let name = &repo.name;
+    // Use the name derived from the git URL as the clone directory, not the config alias.
+    let clone_dir = repo.dir_name();
     let url = &repo.git_url;
-    // Avoid injection: run a small script that uses the variables. We pass name and url
-    // via the command string but we need to escape for the remote shell.
-    // Simpler: use single-quoted script and close quote + pass safe args.
-    // ssh host 'cd /work/git_repos && if [ ! -d name/.git ]; then git clone url name; else cd name && git fetch --all --tags --prune; fi'
-    // So we need name and url substituted. If name/url contain ' we break. Replace ' in name/url with '\'' for remote.
-    let name_esc = name.replace('\'', "'\\''");
+    let clone_dir_esc = clone_dir.replace('\'', "'\\''");
     let url_esc = url.replace('\'', "'\\''");
     let dir_esc = dir.replace('\'', "'\\''");
     // Prefix for git commands: sets GIT_SSH_COMMAND when a GitHub key is provided.
@@ -90,11 +86,11 @@ pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: b
     // Build remote command: cd to dir_repos, then clone if missing
     let command = if !ignore_missing {
         let new_repo_line = shell_printf_flush(console::shell_printf_inline(
-            &format!("    New repo [{}]: ", repo.name),
+            &format!("    New repo [{}]: ", clone_dir),
             Some(Color::Green),
         ));
         let existing_repo_line = shell_printf_flush(console::shell_printf(
-            &format!("    Existing repo [{}]: (ready)", repo.name),
+            &format!("    Existing repo [{}]: (ready)", clone_dir),
             None,
         ));
 
@@ -105,15 +101,15 @@ if [ ! -d '{}/.git' ]; then \
 else \
   {}; \
 fi",
-            dir_esc, name_esc, new_repo_line, git_prefix, url_esc, name_esc, existing_repo_line,
+            dir_esc, clone_dir_esc, new_repo_line, git_prefix, url_esc, clone_dir_esc, existing_repo_line,
         )
     } else {
         let missing_repo_line = shell_printf_flush(console::shell_printf(
-            &format!("    Missing repo [{}]: (ignored)", repo.name),
+            &format!("    Missing repo [{}]: (ignored)", clone_dir),
             Some(Color::Yellow),
         ));
         let existing_repo_line = shell_printf_flush(console::shell_printf(
-            &format!("    Existing repo [{}]: (ready)", repo.name),
+            &format!("    Existing repo [{}]: (ready)", clone_dir),
             Some(Color::Green),
         ));
         format!(
@@ -123,7 +119,7 @@ if [ ! -d '{}/.git' ]; then \
 else \
   {}; \
 fi",
-            dir_esc, name_esc, missing_repo_line, existing_repo_line,
+            dir_esc, clone_dir_esc, missing_repo_line, existing_repo_line,
         )
     };
 

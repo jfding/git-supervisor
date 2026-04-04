@@ -42,14 +42,14 @@ fn whitelists_from_config(
 
     let repo_whitelist: String = repos
         .iter()
-        .map(|r| r.name.clone())
+        .map(|r| r.dir_name().to_string())
         .collect::<Vec<_>>()
         .join(" ");
     let br_whitelist_per_host = repos
         .iter()
         .filter_map(|r| {
             let branches = r.branches.as_deref().or(default_branches)?;
-            let mut s = r.name.clone();
+            let mut s = r.dir_name().to_string();
             for br in branches {
                 s.push(' ');
                 s.push_str(br);
@@ -146,7 +146,7 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
         let dir_repos = config.dir_repos_for_host(host_id);
 
         for repo in config.repos_for_host(host_id) {
-            let repo_dir = dir_repos.join(&repo.name);
+            let repo_dir = dir_repos.join(repo.dir_name());
             let repo_dir_str = repo_dir.to_string_lossy();
             let repo_dir_esc = format!("'{}'", escape_single_quoted(&repo_dir_str));
             let ok_line = console::shell_printf(
