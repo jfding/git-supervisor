@@ -131,7 +131,7 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
     for (host_id, host) in &config.hosts {
         eprintln!(
             "{}",
-            console::highlight(format!("Check host {{ {} }} -->", host_id))
+            console::info(format!("Check host {{ {} }} -->", host_id))
         );
 
         if let Err(e) = ops::check_git_available(host).context("check git/ssh available") {
@@ -150,7 +150,7 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
             let repo_dir_str = repo_dir.to_string_lossy();
             let repo_dir_esc = format!("'{}'", escape_single_quoted(&repo_dir_str));
             let ok_line = console::shell_printf(
-                &format!("OK repo [{}] at {}", repo.name, repo_dir_str),
+                &format!("READY repo [{}] at {}", repo.name, repo_dir_str),
                 Some(console::Color::Green),
             );
             let missing_line = console::shell_printf(
