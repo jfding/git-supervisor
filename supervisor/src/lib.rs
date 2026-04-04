@@ -79,17 +79,28 @@ fn poll_changed_repos(
     eprintln!("{}", console::info("checking repos on controller node..."));
 
     let referenced = config.repos_referenced_by_hosts();
-    for (repo_name, repo_def) in &config.repos {
-        if !referenced.contains(repo_name) {
-            continue;
-        }
-        eprintln!("{}", console::verbose(format!("checking repo [{}]: {}", repo_name, repo_def.git_url)));
-        match ops::remote_refs_fingerprint(&repo_def.git_url) {
+    let results: Vec<(String, anyhow::Result<String>)> = std::thread::scope(|s| {
+        let handles: Vec<_> = config
+            .repos
+            .iter()
+            .filter(|(name, _)| referenced.contains(*name))
+            .map(|(repo_name, repo_def)| {
+                let repo_name = repo_name.clone();
+                let git_url = repo_def.git_url.clone();
+                eprintln!("{}", console::verbose(format!("checking repo [{}]: {}", repo_name, git_url)));
+                s.spawn(move || (repo_name, ops::remote_refs_fingerprint(&git_url)))
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().expect("thread panicked")).collect()
+    });
+
+    for (repo_name, result) in results {
+        match result {
             Ok(fingerprint) => {
-                if last_refs.get(repo_name) != Some(&fingerprint) {
+                if last_refs.get(&repo_name) != Some(&fingerprint) {
                     changed_repos.insert(repo_name.clone());
                 }
-                last_refs.insert(repo_name.clone(), fingerprint);
+                last_refs.insert(repo_name, fingerprint);
             }
             Err(e) => {
                 eprintln!(
@@ -99,7 +110,7 @@ fn poll_changed_repos(
                         repo_name, e
                     ))
                 );
-                failed_repos.insert(repo_name.clone());
+                failed_repos.insert(repo_name);
             }
         }
     }
