@@ -36,8 +36,13 @@ fn escape_single_quoted(s: &str) -> String {
 fn whitelists_from_config(
     config: &CentralConfig,
     host_id: &str,
+    filter_repos: Option<&HashSet<String>>,
 ) -> (Option<String>, Option<String>) {
-    let repos = config.repos_for_host(host_id);
+    let all_repos = config.repos_for_host(host_id);
+    let repos: Vec<_> = match filter_repos {
+        Some(filter) => all_repos.into_iter().filter(|r| filter.contains(&r.name)).collect(),
+        None => all_repos,
+    };
     let default_branches = config.defaults.as_ref().and_then(|d| d.branches.as_deref());
 
     let repo_whitelist: String = repos
@@ -335,17 +340,6 @@ fn run_cycle(
                 .into_iter()
                 .map(|r| r.name)
                 .collect();
-            let (repo_whitelist, br_whitelist_per_host) =
-                whitelists_from_config(config, &host_id);
-            let check_push_env = ops::CheckPushEnv {
-                repo_whitelist,
-                repo_branches: br_whitelist_per_host,
-                log_level: config.defaults.as_ref().and_then(|d| d.log_level),
-                release_tag_topn: host.release_count,
-                release_tag_pattern: host.release_tag_pattern.clone(),
-                release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
-                github_ssh_key: host.github_ssh_key.clone(),
-            };
 
             // Webhook-triggered cycles always run all hosts
             let should_run_remote = if skip_poll {
@@ -387,6 +381,35 @@ fn run_cycle(
             if !should_run_remote {
                 continue;
             }
+
+            // When we know which repos changed/failed, narrow the whitelist so the
+            // remote script only processes relevant repos. First round and webhook
+            // cycles always send the full list.
+            let effective_filter: Option<HashSet<String>> = if !skip_poll && !first_round {
+                Some(
+                    host_repo_names
+                        .iter()
+                        .filter(|name| {
+                            changed_repos.contains(*name) || failed_repos.contains(*name)
+                        })
+                        .cloned()
+                        .collect(),
+                )
+            } else {
+                None
+            };
+            let (repo_whitelist, br_whitelist_per_host) =
+                whitelists_from_config(config, &host_id, effective_filter.as_ref());
+            let check_push_env = ops::CheckPushEnv {
+                repo_whitelist,
+                repo_branches: br_whitelist_per_host,
+                log_level: config.defaults.as_ref().and_then(|d| d.log_level),
+                release_tag_topn: host.release_count,
+                release_tag_pattern: host.release_tag_pattern.clone(),
+                release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
+                github_ssh_key: host.github_ssh_key.clone(),
+            };
+
             any_host_ran = true;
             s.spawn(move || {
                 if let Err(e) = ops::run_check_push_remote(
