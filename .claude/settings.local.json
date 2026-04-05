@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh issue:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(gh pr:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(~/.cargo/bin/cargo build:*)",
+      "Bash(~/.cargo/bin/cargo test:*)",
+      "Read(//home/djf/.cargo/bin/**)",
+      "Read(//usr/local/cargo/bin/**)",
+      "Bash(~/.cargo/bin/cargo clippy:*)",
+      "Bash(cargo check:*)",
+      "Bash(~/.cargo/bin/cargo check:*)",
+      "Skill(commit-commands:commit)",
+      "Skill(commit-commands:commit-push-pr)"
+    ]
+  }
+}
