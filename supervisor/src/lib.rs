@@ -1,5 +1,6 @@
 use anyhow::Context;
 use std::collections::{HashMap, HashSet};
+use std::io::IsTerminal;
 use std::time::{Duration, Instant};
 
 pub mod config;
@@ -36,8 +37,13 @@ fn escape_single_quoted(s: &str) -> String {
 fn whitelists_from_config(
     config: &CentralConfig,
     host_id: &str,
+    filter_repos: Option<&HashSet<String>>,
 ) -> (Option<String>, Option<String>) {
-    let repos = config.repos_for_host(host_id);
+    let all_repos = config.repos_for_host(host_id);
+    let repos: Vec<_> = match filter_repos {
+        Some(filter) => all_repos.into_iter().filter(|r| filter.contains(&r.name)).collect(),
+        None => all_repos,
+    };
     let default_branches = config.defaults.as_ref().and_then(|d| d.branches.as_deref());
 
     let repo_whitelist: String = repos
@@ -79,17 +85,28 @@ fn poll_changed_repos(
     eprintln!("{}", console::info("checking repos on controller node..."));
 
     let referenced = config.repos_referenced_by_hosts();
-    for (repo_name, repo_def) in &config.repos {
-        if !referenced.contains(repo_name) {
-            continue;
-        }
-        eprintln!("{}", console::verbose(format!("checking repo [{}]: {}", repo_name, repo_def.git_url)));
-        match ops::remote_refs_fingerprint(&repo_def.git_url) {
+    let results: Vec<(String, anyhow::Result<String>)> = std::thread::scope(|s| {
+        let handles: Vec<_> = config
+            .repos
+            .iter()
+            .filter(|(name, _)| referenced.contains(*name))
+            .map(|(repo_name, repo_def)| {
+                let repo_name = repo_name.clone();
+                let git_url = repo_def.git_url.clone();
+                eprintln!("{}", console::verbose(format!("checking repo [{}]: {}", repo_name, git_url)));
+                s.spawn(move || (repo_name, ops::remote_refs_fingerprint(&git_url)))
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().expect("thread panicked")).collect()
+    });
+
+    for (repo_name, result) in results {
+        match result {
             Ok(fingerprint) => {
-                if last_refs.get(repo_name) != Some(&fingerprint) {
+                if last_refs.get(&repo_name) != Some(&fingerprint) {
                     changed_repos.insert(repo_name.clone());
                 }
-                last_refs.insert(repo_name.clone(), fingerprint);
+                last_refs.insert(repo_name, fingerprint);
             }
             Err(e) => {
                 eprintln!(
@@ -99,7 +116,7 @@ fn poll_changed_repos(
                         repo_name, e
                     ))
                 );
-                failed_repos.insert(repo_name.clone());
+                failed_repos.insert(repo_name);
             }
         }
     }
@@ -292,15 +309,15 @@ fn run_cycle(
             if changed.is_empty() {
                 eprintln!(
                     "{}",
-                    console::info("watch: no upstream repo changes detected in this round")
+                    console::highlight("watch: no upstream repo changes detected in this round")
                 );
             } else {
                 let mut changed_sorted: Vec<_> = changed.iter().cloned().collect();
                 changed_sorted.sort();
                 eprintln!(
                     "{}",
-                    console::info(format!(
-                        "watch: upstream repo change detected: {}",
+                    console::highlight(format!(
+                        "watch: upstream repo change detected: [{}]",
                         changed_sorted.join(", ")
                     ))
                 );
@@ -308,7 +325,7 @@ fn run_cycle(
         } else {
             eprintln!(
                 "{}",
-                console::info("watch: initial round, running remote check-push for all hosts")
+                console::highlight("watch: initial round, running remote check-push for all hosts")
             );
         }
         (changed, failed)
@@ -324,17 +341,6 @@ fn run_cycle(
                 .into_iter()
                 .map(|r| r.name)
                 .collect();
-            let (repo_whitelist, br_whitelist_per_host) =
-                whitelists_from_config(config, &host_id);
-            let check_push_env = ops::CheckPushEnv {
-                repo_whitelist,
-                repo_branches: br_whitelist_per_host,
-                log_level: config.defaults.as_ref().and_then(|d| d.log_level),
-                release_tag_topn: host.release_count,
-                release_tag_pattern: host.release_tag_pattern.clone(),
-                release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
-                github_ssh_key: host.github_ssh_key.clone(),
-            };
 
             // Webhook-triggered cycles always run all hosts
             let should_run_remote = if skip_poll {
@@ -376,6 +382,35 @@ fn run_cycle(
             if !should_run_remote {
                 continue;
             }
+
+            // When we know which repos changed/failed, narrow the whitelist so the
+            // remote script only processes relevant repos. First round and webhook
+            // cycles always send the full list.
+            let effective_filter: Option<HashSet<String>> = if !skip_poll && !first_round {
+                Some(
+                    host_repo_names
+                        .iter()
+                        .filter(|name| {
+                            changed_repos.contains(*name) || failed_repos.contains(*name)
+                        })
+                        .cloned()
+                        .collect(),
+                )
+            } else {
+                None
+            };
+            let (repo_whitelist, br_whitelist_per_host) =
+                whitelists_from_config(config, &host_id, effective_filter.as_ref());
+            let check_push_env = ops::CheckPushEnv {
+                repo_whitelist,
+                repo_branches: br_whitelist_per_host,
+                log_level: config.defaults.as_ref().and_then(|d| d.log_level),
+                release_tag_topn: host.release_count,
+                release_tag_pattern: host.release_tag_pattern.clone(),
+                release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),
+                github_ssh_key: host.github_ssh_key.clone(),
+            };
+
             any_host_ran = true;
             s.spawn(move || {
                 if let Err(e) = ops::run_check_push_remote(
@@ -393,6 +428,26 @@ fn run_cycle(
 
     if any_host_ran {
         eprintln!("{}", console::info(format!("watch round {} done", round)));
+    }
+}
+
+/// Print a countdown on stderr while sleeping, overwriting the same line on a terminal.
+/// Falls back to a plain sleep when stderr is not a terminal (e.g. piped logs).
+async fn countdown_wait(duration: Duration) {
+    let total_secs = duration.as_secs();
+    if std::io::stderr().is_terminal() {
+        for remaining in (1..=total_secs).rev() {
+            eprint!(
+                "\r{}",
+                console::verbose(format!("watch: next round in {}s...", remaining))
+            );
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        // Clear the countdown line before the next log line is printed
+        eprint!("\r{:40}\r", "");
+    } else {
+        eprintln!("{}", console::verbose(format!("watch: next round in {}s...", total_secs)));
+        tokio::time::sleep(duration).await;
     }
 }
 
@@ -443,9 +498,9 @@ pub async fn run_watch(
                 None => interval,
             };
 
-            // Wait for either timer or webhook signal
+            // Wait for either timer or webhook signal, showing a countdown on terminals
             tokio::select! {
-                _ = tokio::time::sleep(sleep_duration) => {
+                _ = countdown_wait(sleep_duration) => {
                     false // timer-triggered: poll for changes
                 }
                 Some(()) = async {
@@ -454,6 +509,9 @@ pub async fn run_watch(
                         None => std::future::pending().await,
                     }
                 } => {
+                    if std::io::stderr().is_terminal() {
+                        eprint!("\r{:40}\r", ""); // clear countdown line
+                    }
                     true // webhook-triggered: skip polling
                 }
             }
