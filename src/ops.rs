@@ -245,15 +245,9 @@ pub fn run_check_push_remote(
 /// treats it the same as if it were never exported.
 pub fn run_check_push_local(script: &str) -> Result<()> {
     let color_env = if console::color_enabled() { "FORCE_COLOR=1 " } else { "" };
-    // If REPO_WHITELIST is exported but empty, unset it so the script scans all repos.
-    let unset_repo_whitelist = match std::env::var("REPO_WHITELIST") {
-        Ok(v) if v.is_empty() => "unset REPO_WHITELIST; ",
-        _ => "",
-    };
     let loglevel_env = format!("LOGLEVEL={} ", console::log_level());
     let command = format!(
-        "{}{}{}SLEEP_TIME=0 CI_LOCK='{}' bash -s -- --once",
-        unset_repo_whitelist,
+        "{}{}SLEEP_TIME=0 CI_LOCK='{}' bash -s -- --once",
         color_env,
         loglevel_env,
         CHECK_PUSH_CI_LOCK
