@@ -16,4 +16,4 @@ else
 fi
 
 cd $BUILDDIR
-docker build -f ${METADIR}/Dockerfile -t rushiai/auto-reloader:$TAG .
+docker build -f ${METADIR}/Dockerfile -t rushiai/git-supervisor:$TAG .
