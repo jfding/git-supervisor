@@ -96,7 +96,7 @@ pub struct RepoDef {
 /// Examples: `git@github.com:org/webapp.git` → `"webapp"`,
 ///           `https://github.com/org/my-repo` → `"my-repo"`.
 pub fn dir_name_from_url(url: &str) -> &str {
-    let last = url.rsplit(|c| c == '/' || c == ':').next().unwrap_or(url);
+    let last = url.rsplit(['/', ':']).next().unwrap_or(url);
     last.strip_suffix(".git").unwrap_or(last)
 }
 
