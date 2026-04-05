@@ -40,25 +40,23 @@ jobs:
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@v2
         with:
-          workspace: supervisor
           key: ${{ matrix.target }}
 
       - name: Build release binary
-        working-directory: supervisor
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Strip binary (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: strip supervisor/target/${{ matrix.target }}/release/git-supervisor
+        run: strip target/${{ matrix.target }}/release/git-supervisor
 
       - name: Clear extended attributes (macOS)
         if: matrix.os == 'macos-latest'
-        run: xattr -c supervisor/target/${{ matrix.target }}/release/git-supervisor
+        run: xattr -c target/${{ matrix.target }}/release/git-supervisor
 
       - name: Pack artifact
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          cd supervisor/target/${{ matrix.target }}/release
+          cd target/${{ matrix.target }}/release
           tar czvf "${{ github.workspace }}/${{ matrix.artifact_name }}-${TAG}.tar.gz" git-supervisor
 
       - name: Upload artifact

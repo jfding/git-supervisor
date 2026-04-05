@@ -32,7 +32,7 @@ jobs:
           push: true
           context: ./
           file: ./deployment/build/Dockerfile
-          tags: rushiai/auto-reloader:${{ github.ref_name }}
+          tags: rushiai/git-supervisor:${{ github.ref_name }}
 
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}

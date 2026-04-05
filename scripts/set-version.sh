@@ -16,17 +16,17 @@ fi
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)
 echo "$v" > "$root/VERSION"
-sed -i.bak -E "s/^version = \".+\"/version = \"$v\"/" "$root/supervisor/Cargo.toml" && rm -f "$root/supervisor/Cargo.toml.bak"
+sed -i.bak -E "s/^version = \".+\"/version = \"$v\"/" "$root/Cargo.toml" && rm -f "$root/Cargo.toml.bak"
 
 # Update version in deployment/docker-compose/compose.yml (image tag)
 compose_yml="$root/deployment/docker-compose/compose.yml"
 if [[ -f "$compose_yml" ]]; then
-  sed -i.bak -E "s|(rushiai/auto-reloader:)[^\"']+|\1v$v|g" "$compose_yml" && rm -f "$compose_yml.bak"
+  sed -i.bak -E "s|(rushiai/git-supervisor:)[^\"']+|\1v$v|g" "$compose_yml" && rm -f "$compose_yml.bak"
 else
   echo "Warning: $compose_yml not found, skipping docker-compose version update" >&2
 fi
 
 # trigger version update in Cargo.lock
-cd "$root/supervisor" && cargo update --package git-supervisor --precise "$v"
+cargo update --package git-supervisor --precise "$v"
 
-echo "Version set to $v in VERSION, supervisor/Cargo.toml, and reference (docker)compose.yml"
+echo "Version set to $v in VERSION, Cargo.toml/lock, and reference (docker)compose.yml"
