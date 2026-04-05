@@ -105,6 +105,23 @@ git-supervisor watch --interval 60 --timeout 600
 - Volume `<work>` to store all the data: git_repos, (code)copies, scripts.
 - Volume `<keys>` to store the ssh keys to access github.com repos.
 
+### Dot file triggers in copy directories
+
+Inside each copy directory (`<dir_base>/copies/<repo>.<branch>/`), several dot files control the behavior of the `check-push` update cycle. **User-managed** files are placed or removed by the operator; **auto-managed** files are written by the script itself.
+
+| Dot file | Managed by | Purpose |
+|---|---|---|
+| `.skipping` | user | **Skip updates.** The branch copy is ignored during update cycles. Created automatically for non-whitelisted branches on first init; remove it to opt-in to updates. |
+| `.debugging` | user | **Freeze for debugging.** Prevents any update to the copy, even if upstream has new commits. Place it when you need to inspect or modify the copy without it being overwritten. |
+| `.trigger` | user | **Force an update.** Triggers a refresh of the copy even when no upstream changes are detected. Burn-after-reading: the script deletes it once consumed. |
+| `.no-cleanup` | user | **Overlay-only updates.** Normally an update does a full refresh (remove old files, extract fresh). With this file present, new files are extracted on top of the existing copy without deleting extra files. |
+| `.stopping` | user | **Mark for deprecation.** The script removes all content in the directory, then recreates it with `.skipping` so no further updates occur. Use this to retire a branch copy cleanly. |
+| `.git-rev` | auto | Stores the deployed commit hash. Used to detect whether upstream has new commits since the last update. |
+| `.living` | auto | Heartbeat marker written each cycle after a branch/release is processed. Copies without `.living` at cleanup time are considered stale and moved to `*.to-be-removed`. |
+
+All dot files inside a copy directory are **preserved across updates** (both full-refresh and overlay modes).
+
+
 ### Docker restart and pre/post hook jobs
 
 When a copy path has a docker restart config file (`*.docker`), `check-push.sh` can run optional hook jobs around restart:
@@ -123,12 +140,14 @@ Hook job scripts are executed with `bash`, from the copy directory as working di
 - `DOCKER_NAME` (container name from `*.docker`)
 - `DOCKER_HOOK_FILE` (resolved hook script path)
 
-### (Legacy) Run original shell script loop to check status of repos on local
+### (Legacy) How to run original shell script loop
 
-- Must set `SLEEP_TIME` env for docker-run, to specify the timeout values (seconds)
-- Specify the **command** as `/scripts/check-push.sh` for docker-run
-- If no `SLEEP_TIME` env, the script will be run as one-shot checking.
-- ENV **BR_WHITELIST**: Space-separated branch names to track and copy by default (e.g. `main master dev`). Override via env; default in script: `main master dev test alpha`. Whitelisted branches get their copy dir created and populated on first run; other branches are only tracked if a copy dir already exists (and then start with a `.skipping` flag until you remove it).
+Besides running `watch` command without any deployments config, which will do the same work as the original shell check-push.sh script.
+And the script was also removed from the release artifacts, but there does have a method to find it back:
+
+```
+git-supervisor print-script
+```
 
 ## Development
 
