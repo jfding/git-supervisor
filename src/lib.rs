@@ -252,6 +252,9 @@ fn run_cycle(
 ) {
     let (changed_repos, failed_repos) = if skip_poll {
         console::log_info(format!("watch: round {} [webhook triggered] refreshing all hosts", round));
+        // Update ref fingerprints so the next timer-triggered round won't
+        // re-detect the same changes and cause a duplicate refresh.
+        let _ = poll_changed_repos(config, last_remote_refs);
         (HashSet::new(), HashSet::new())
     } else {
         console::log_info(format!("watch:{} round {} (hosts: {})", wh_tag, round, config.hosts.len()));
