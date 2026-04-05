@@ -1,7 +1,7 @@
 #!/bin/sh
 
-METADIR=$(pwd)
-TOPDIR=$(cd ../../; pwd)
+METADIR=$(dirname "$0")
+TOPDIR=$(dirname "$METADIR"/../..)
 BUILDDIR=$TOPDIR
 
 TODAY=$(date +%Y%m%d)
