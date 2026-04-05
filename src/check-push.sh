@@ -375,12 +375,12 @@ function _handle_docker {
     local _post_hook_path="${_docker_path}.post"
     local _docker_name
 
-    command -v docker >/dev/null || {
-      warn "docker cli not found, skip docker restart"
-      return
-    }
-
     if [[ -f "${_docker_path}" ]]; then
+      command -v docker >/dev/null || {
+        warn "docker cli not found, skip docker restart"
+        return
+      }
+
       _docker_name=$(cat "${_docker_path}" | tr -d '\n\r')
 
       # Validate docker name to prevent command injection
@@ -721,6 +721,15 @@ function main_loop {
   done
 }
 
+# check for required commands
+function check_required_commands {
+  for c in git tar; do
+    command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
+  done
+  # check for optional 'docker' support
+  command -v docker >/dev/null || warn "docker cli not found, will skip docker restart handling"
+}
+
 ### __main__ ###
 
 if [[ "${1:-}" == "--version" ]] || [[ "${1:-}" == "-V" ]]; then
@@ -735,12 +744,11 @@ if [[ "${1:-}" == "--version" ]] || [[ "${1:-}" == "-V" ]]; then
   exit 0
 fi
 
-# check for required commands
-for c in git tar; do
-  command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
-done
-# check for optional 'docker' support
-command -v docker >/dev/null || warn "docker cli not found, will skip docker restart handling"
+echo "0: $0"
+if [[ $0 =~ "check-push.sh" ]]; then
+  # means running as a script
+  check_required_commands
+fi
 
 ## check and init all working dirs
 # 1. check the DIR_BASE is available (sanitize&check at the time)

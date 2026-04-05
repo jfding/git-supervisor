@@ -32,15 +32,15 @@ fn check_tool_available(host: &Host, tool: &str) -> Result<()> {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
-            .with_context(|| format!("{} not found locally", tool))?;
+            .with_context(|| format!("{} not found in local host", tool))?;
         if status.success() {
             Ok(())
         } else {
-            anyhow::bail!("{} not found locally", tool);
+            anyhow::bail!("{} not found in local host", tool);
         }
     } else {
         ssh::ssh_run(host, &cmd)
-            .with_context(|| format!("{} not found on remote", tool))
+            .with_context(|| format!("{} not found in remote host", tool))
     }
 }
 
