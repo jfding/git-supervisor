@@ -78,11 +78,14 @@ fn whitelists_from_config(
 fn poll_changed_repos(
     config: &CentralConfig,
     last_refs: &mut HashMap<String, String>,
+    quiet: bool,
 ) -> (HashSet<String>, HashSet<String>) {
     let mut changed_repos = HashSet::new();
     let mut failed_repos = HashSet::new();
 
-    console::log_info("checking repos on controller node...");
+    if !quiet {
+        console::log_info("checking repos on controller node...");
+    }
 
     let referenced = config.repos_referenced_by_hosts();
     let results: Vec<(String, anyhow::Result<String>)> = std::thread::scope(|s| {
@@ -93,7 +96,9 @@ fn poll_changed_repos(
             .map(|(repo_name, repo_def)| {
                 let repo_name = repo_name.clone();
                 let git_url = repo_def.git_url.clone();
-                console::log_verbose(format!("checking repo [{}]: {}", repo_name, git_url));
+                if !quiet {
+                    console::log_verbose(format!("checking repo [{}]: {}", repo_name, git_url));
+                }
                 s.spawn(move || (repo_name, ops::remote_refs_fingerprint(&git_url)))
             })
             .collect();
@@ -254,12 +259,12 @@ fn run_cycle(
         console::log_info(format!("watch: round {} [webhook triggered] refreshing all hosts", round));
         // Update ref fingerprints so the next timer-triggered round won't
         // re-detect the same changes and cause a duplicate refresh.
-        let _ = poll_changed_repos(config, last_remote_refs);
+        let _ = poll_changed_repos(config, last_remote_refs, true);
         (HashSet::new(), HashSet::new())
     } else {
         console::log_info(format!("watch:{} round {} (hosts: {})", wh_tag, round, config.hosts.len()));
 
-        let (changed, failed) = poll_changed_repos(config, last_remote_refs);
+        let (changed, failed) = poll_changed_repos(config, last_remote_refs, false);
 
         if !first_round {
             if changed.is_empty() {
