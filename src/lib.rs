@@ -342,7 +342,7 @@ fn run_cycle(
             let check_push_env = ops::CheckPushEnv {
                 repo_whitelist,
                 repo_branches: br_whitelist_per_host,
-                log_level: config.defaults.as_ref().and_then(|d| d.log_level),
+                log_level: Some(console::log_level()),
                 release_tag_topn: host.release_count,
                 release_tag_pattern: host.release_tag_pattern.clone(),
                 release_tag_exclude_pattern: host.release_tag_exclude_pattern.clone(),

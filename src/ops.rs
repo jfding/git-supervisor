@@ -250,11 +250,7 @@ pub fn run_check_push_local(script: &str) -> Result<()> {
         Ok(v) if v.is_empty() => "unset REPO_WHITELIST; ",
         _ => "",
     };
-    // Explicitly forward LOGLEVEL so a login shell (-l) cannot shadow the inherited value.
-    let loglevel_env = match std::env::var("LOGLEVEL") {
-        Ok(v) if v.parse::<u8>().is_ok() => format!("LOGLEVEL={} ", v),
-        _ => String::new(),
-    };
+    let loglevel_env = format!("LOGLEVEL={} ", console::log_level());
     let command = format!(
         "{}{}{}SLEEP_TIME=0 CI_LOCK='{}' bash -s -- --once",
         unset_repo_whitelist,
