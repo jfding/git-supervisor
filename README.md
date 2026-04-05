@@ -147,18 +147,13 @@ The logic in the central check-push.sh script:
 
 ### Versioning
 
-The project uses a single source of truth for version: the **`VERSION`** file at the repo root (e.g. `1.0.0`).
+The project version is defined solely in `Cargo.toml`. `git-supervisor --version` reflects it directly.
 
-- **Scripts**: Run `check-push.sh --version` / `-V` prints it. In the Docker image, `VERSION` is copied to `/scripts/VERSION`.
-- **supervisor** (Rust): Build reads `VERSION` from the repo root and sets the binary version; `git-supervisor --version` shows it. If `VERSION` is missing, `Cargo.toml` package version is used.
-
-To set the version everywhere (e.g. for a release), run:
+To bump the version (updates `Cargo.toml`, `Cargo.lock`, and the docker-compose image tag), run:
 
 ```bash
 ./scripts/set-version.sh 1.2.3
 ```
-
-This updates `VERSION`, `Cargo.toml`, etc.
 
 ### Testing
 

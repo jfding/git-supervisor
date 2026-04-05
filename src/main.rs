@@ -3,11 +3,8 @@ use git_supervisor::console;
 use git_supervisor::{run_check, run_local_watch, run_watch, CentralConfig, WatchOpts, CHECK_PUSH_SCRIPT};
 use std::path::PathBuf;
 
-/// Version from repo VERSION file (set in build.rs).
-const APP_VERSION: &str = env!("APP_VERSION");
-
 #[derive(Parser)]
-#[command(name = "supervisor", version = APP_VERSION)]
+#[command(name = "git-supervisor", version)]
 struct Cli {
     /// Config file path (default: ~/.config/git-supervisor/deployments.yaml or ./deployments.yaml)
     #[arg(short = 'c', long, global = true)]
@@ -128,7 +125,7 @@ fn main() {
                             skip_prepare: args.skip_prepare,
                             webhook_port: args.webhook_port,
                             webhook_secret: args.webhook_secret.clone(),
-                            version: APP_VERSION.to_string(),
+                            version: env!("CARGO_PKG_VERSION").to_string(),
                         },
                     ))
                 }

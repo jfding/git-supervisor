@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # LICENSE: MIT
 
+VERSION="2.1.0"
+
 set -u
 set -o pipefail
 
@@ -733,14 +735,7 @@ function check_required_commands {
 ### __main__ ###
 
 if [[ "${1:-}" == "--version" ]] || [[ "${1:-}" == "-V" ]]; then
-  SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
-  for d in "$SCRIPT_DIR" "$SCRIPT_DIR/.." "/scripts"; do
-    if [[ -f "$d/VERSION" ]]; then
-      echo "check-push $(cat "$d/VERSION")"
-      exit 0
-    fi
-  done
-  echo "check-push unknown"
+  echo "check-push.sh version: $VERSION"
   exit 0
 fi
 
