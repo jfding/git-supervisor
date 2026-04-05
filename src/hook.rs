@@ -13,6 +13,8 @@ use sha2::Sha256;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use crate::console;
+
 type HmacSha256 = Hmac<Sha256>;
 
 struct HookState {
@@ -113,7 +115,7 @@ pub(crate) async fn start_webhook_server(
     let app = build_webhook_router(secret, version, tx);
 
     let addr = format!("0.0.0.0:{}", port);
-    eprintln!("Webhook server listening on {}", addr);
+    console::log_highlight(format!("webhook: listening on {}", addr));
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -121,7 +123,7 @@ pub(crate) async fn start_webhook_server(
 
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
-            eprintln!("Webhook server error: {}", e);
+            console::log_error(format!("webhook: error: {}", e));
         }
     });
 

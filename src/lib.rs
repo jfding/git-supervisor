@@ -248,13 +248,13 @@ fn run_cycle(
     round: u64,
     first_round: bool,
     skip_poll: bool,
+    wh_tag: &str,
 ) {
     let (changed_repos, failed_repos) = if skip_poll {
-        console::log_info(format!("watch round {} [webhook] (hosts: {})", round, config.hosts.len()));
-        console::log_info("watch: webhook triggered, running remote check-push for all hosts");
+        console::log_info(format!("watch: round {} [webhook triggered] refreshing all hosts", round));
         (HashSet::new(), HashSet::new())
     } else {
-        console::log_info(format!("watch round {} (hosts: {})", round, config.hosts.len()));
+        console::log_info(format!("watch:{} round {} (hosts: {})", wh_tag, round, config.hosts.len()));
 
         let (changed, failed) = poll_changed_repos(config, last_remote_refs);
 
@@ -270,7 +270,7 @@ fn run_cycle(
                 ));
             }
         } else {
-            console::log_highlight("watch: initial round, running remote check-push for all hosts");
+            console::log_highlight("watch: initial round, refreshing all hosts");
         }
         (changed, failed)
     };
@@ -365,26 +365,26 @@ fn run_cycle(
     });
 
     if any_host_ran {
-        console::log_info(format!("watch round {} done", round));
+        console::log_info(format!("watch: round {} done", round));
     }
 }
 
 /// Print a countdown on stderr while sleeping, overwriting the same line on a terminal.
 /// Falls back to a plain sleep when stderr is not a terminal (e.g. piped logs).
-async fn countdown_wait(duration: Duration) {
+async fn countdown_wait(duration: Duration, wh_tag: &str) {
     let total_secs = duration.as_secs();
     if console::log_level() >= 2 && std::io::stderr().is_terminal() {
         for remaining in (1..=total_secs).rev() {
             eprint!(
                 "\r{}",
-                console::verbose(format!("watch: next round in {}s...", remaining))
+                console::info(format!("watch:{} next round in {}s...", wh_tag, remaining))
             );
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
         // Clear the countdown line before the next log line is printed
         eprint!("\r{:40}\r", "");
     } else {
-        console::log_verbose(format!("watch: next round in {}s...", total_secs));
+        console::log_info(format!("watch:{} next round in {}s...", wh_tag, total_secs));
         tokio::time::sleep(duration).await;
     }
 }
@@ -414,13 +414,15 @@ pub async fn run_watch(
         _ => None,
     };
 
+    let wh_tag = if webhook_rx.is_some() { " [+webhook]" } else { "" };
+
     loop {
         // For the first iteration, run immediately (no wait)
         let skip_poll = if round == 0 {
             false
         } else {
             if opts.interval_secs == 0 {
-                console::log_info("interval is 0, run once and quit");
+                console::log_highlight("watch: interval is 0, run once and quit");
                 break;
             }
 
@@ -428,7 +430,7 @@ pub async fn run_watch(
                 Some(d) => {
                     let remaining = d.saturating_duration_since(Instant::now());
                     if remaining.is_zero() {
-                        console::log_info("watch timeout reached, stopping");
+                        console::log_info("watch: timeout reached, stopping");
                         break;
                     }
                     remaining.min(interval)
@@ -438,7 +440,7 @@ pub async fn run_watch(
 
             // Wait for either timer or webhook signal, showing a countdown on terminals
             tokio::select! {
-                _ = countdown_wait(sleep_duration) => {
+                _ = countdown_wait(sleep_duration, wh_tag) => {
                     false // timer-triggered: poll for changes
                 }
                 Some(()) = async {
@@ -466,7 +468,7 @@ pub async fn run_watch(
         let config_clone = config.clone();
         let mut refs = std::mem::take(&mut last_remote_refs);
         let returned_refs = tokio::task::spawn_blocking(move || {
-            run_cycle(&config_clone, &mut refs, round, first_round, skip_poll);
+            run_cycle(&config_clone, &mut refs, round, first_round, skip_poll, wh_tag);
             refs
         })
         .await?;

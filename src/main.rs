@@ -82,7 +82,7 @@ fn resolve_config_path(explicit: Option<&std::path::Path>) -> Option<PathBuf> {
 fn warn_webhook_args(args: &WatchArgs) {
     if args.webhook_port.is_some() && args.webhook_secret.is_none() {
         console::log_warning(
-            "--webhook-port given without --webhook-secret / GITHUB_WEBHOOK_SECRET; webhook listening disabled",
+            "Warning: webhook port given w/o secret setting, webhook listening ignored",
         );
     }
 }
@@ -126,7 +126,7 @@ fn main() {
                     ))
                 }
                 None => {
-                    console::log_info("no config found, running in local mode");
+                    console::log_highlight("no config found, running in local mode");
                     run_local_watch(args.interval, args.timeout)
                 }
             }
