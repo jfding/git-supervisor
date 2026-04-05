@@ -744,9 +744,8 @@ if [[ "${1:-}" == "--version" ]] || [[ "${1:-}" == "-V" ]]; then
   exit 0
 fi
 
-echo "0: $0"
 if [[ $0 =~ "check-push.sh" ]]; then
-  # means running as a script
+  # only check required commands when running as a script(not embedded mode)
   check_required_commands
 fi
 

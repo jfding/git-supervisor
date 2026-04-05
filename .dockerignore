@@ -1,6 +1,7 @@
 .git
 .gitignore
-supervisor/target
 *.md
 docs
 tests
+target
+core/tests/work.test

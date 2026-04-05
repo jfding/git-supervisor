@@ -7,7 +7,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEV_DIR="$(cd "$(dirname "$SCRIPT_DIR")/work.test" && pwd)"
-CHECK_PUSH_SCRIPT="$DEV_DIR/../../src/check-push.sh"
+CHECK_PUSH_SCRIPT="$DEV_DIR/../../check-push.sh"
 
 # Test configuration (script uses DIR_BASE and derives DIR_REPOS, DIR_COPIES; CI_LOCK is a directory)
 export DIR_BASE="$DEV_DIR"

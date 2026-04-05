@@ -1,5 +1,5 @@
 # temp testing env by scripts
-tests/work.test/
+core/tests/work.test/
 
 # Rust
 target/

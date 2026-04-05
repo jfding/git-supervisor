@@ -1,1 +1,0 @@
-../../src/check-push.sh

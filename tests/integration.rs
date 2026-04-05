@@ -3,8 +3,6 @@ use std::process::Command;
 
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
         .to_path_buf()
 }
 
@@ -23,7 +21,7 @@ fn run_script(path: &std::path::Path) -> std::process::ExitStatus {
 #[test]
 #[ignore]
 fn check_push_integration() {
-    let scripts = project_root().join("tests/scripts");
+    let scripts = project_root().join("core/tests/scripts");
 
     let status = run_script(&scripts.join("setup-test-repos.sh"));
     assert!(status.success(), "setup-test-repos.sh failed");
