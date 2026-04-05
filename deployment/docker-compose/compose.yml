@@ -3,7 +3,7 @@
 services:
     loader:
         restart: always
-        image: rushiai/git-supervisor:v2.1.1
+        image: rushiai/git-supervisor:v2.1.2
         volumes:
 
             # if need to handle git repos in localhost, uncomment these two lines
