@@ -1,6 +1,6 @@
 use clap::Parser;
 use git_supervisor::console;
-use git_supervisor::{run_check, run_local_watch, run_watch, CentralConfig, WatchOpts};
+use git_supervisor::{run_check, run_local_watch, run_watch, CentralConfig, WatchOpts, CHECK_PUSH_SCRIPT};
 use std::path::PathBuf;
 
 /// Version from repo VERSION file (set in build.rs).
@@ -24,6 +24,8 @@ enum Command {
     /// Prepare remotes (create dirs, ensure repos) then run check-push on each host in a loop.
     /// Optionally start a GitHub webhook server alongside the timer.
     Watch(WatchArgs),
+    /// Print the embedded check-push.sh script to stdout
+    PrintScript,
 }
 
 #[derive(clap::Args)]
@@ -94,6 +96,10 @@ fn main() {
     let config_path = resolve_config_path(cli.config.as_deref());
 
     let result: Result<(), anyhow::Error> = match &cli.command {
+        Command::PrintScript => {
+            print!("{}", CHECK_PUSH_SCRIPT);
+            Ok(())
+        }
         Command::Check => {
             let path = config_path.unwrap_or_else(|| {
                 eprintln!("{}", console::error(

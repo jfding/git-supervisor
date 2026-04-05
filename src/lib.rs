@@ -24,7 +24,7 @@ pub struct WatchOpts {
 }
 
 /// Embedded check-push.sh script, run on remote with sandbox env.
-const CHECK_PUSH_SCRIPT: &str = include_str!("../core/check-push.sh");
+pub const CHECK_PUSH_SCRIPT: &str = include_str!("../core/check-push.sh");
 
 fn escape_single_quoted(s: &str) -> String {
     s.replace('\'', "'\\''")
