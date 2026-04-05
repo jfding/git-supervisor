@@ -78,14 +78,13 @@ fn resolve_config_path(explicit: Option<&std::path::Path>) -> Option<PathBuf> {
     None
 }
 
-/// Validate that webhook_port requires a webhook_secret.
-fn validate_webhook_args(args: &WatchArgs) -> Result<(), String> {
+/// Warn if webhook_port is set without a webhook_secret (webhook listening will be skipped).
+fn warn_webhook_args(args: &WatchArgs) {
     if args.webhook_port.is_some() && args.webhook_secret.is_none() {
-        return Err(
-            "--webhook-port requires --webhook-secret or GITHUB_WEBHOOK_SECRET env var".into(),
+        console::log_warning(
+            "Warning: webhook port given w/o secret setting, webhook listening ignored",
         );
     }
-    Ok(())
 }
 
 fn main() {
@@ -108,10 +107,7 @@ fn main() {
             run_check(&config)
         }
         Command::Watch(args) => {
-            if let Err(msg) = validate_webhook_args(args) {
-                console::log_error(format!("Error: {}", msg));
-                std::process::exit(1);
-            }
+            warn_webhook_args(args);
             match config_path {
                 Some(ref path) => {
                     let config = load_config_or_exit(path);
@@ -130,7 +126,7 @@ fn main() {
                     ))
                 }
                 None => {
-                    console::log_info("no config found, running in local mode");
+                    console::log_highlight("no config found, running in local mode");
                     run_local_watch(args.interval, args.timeout)
                 }
             }
@@ -194,7 +190,8 @@ mod tests {
     }
 
     #[test]
-    fn validate_webhook_port_without_secret_fails() {
+    fn warn_webhook_port_without_secret_no_panic() {
+        // port without secret should not panic; webhook listening is simply skipped
         let args = WatchArgs {
             interval: 120,
             timeout: None,
@@ -203,33 +200,7 @@ mod tests {
             webhook_port: Some(9870),
             webhook_secret: None,
         };
-        assert!(validate_webhook_args(&args).is_err());
-    }
-
-    #[test]
-    fn validate_webhook_port_with_secret_ok() {
-        let args = WatchArgs {
-            interval: 120,
-            timeout: None,
-            ignore_missing: false,
-            skip_prepare: false,
-            webhook_port: Some(9870),
-            webhook_secret: Some("secret".into()),
-        };
-        assert!(validate_webhook_args(&args).is_ok());
-    }
-
-    #[test]
-    fn validate_no_webhook_flags_ok() {
-        let args = WatchArgs {
-            interval: 120,
-            timeout: None,
-            ignore_missing: false,
-            skip_prepare: false,
-            webhook_port: None,
-            webhook_secret: None,
-        };
-        assert!(validate_webhook_args(&args).is_ok());
+        warn_webhook_args(&args); // should not panic
     }
 
     #[test]

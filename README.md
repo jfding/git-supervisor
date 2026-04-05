@@ -78,7 +78,7 @@ git-supervisor watch --webhook-port 9870 --webhook-secret MY_SECRET
 GITHUB_WEBHOOK_SECRET=MY_SECRET git-supervisor watch --webhook-port 8080
 ```
 
-If `--webhook-port` is set without a secret, the command exits with an argument error.
+If `--webhook-port` is set without a secret, a warning is printed and webhook listening is skipped.
 
 ### Local mode (no deployments.yaml)
 
