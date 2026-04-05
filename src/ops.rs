@@ -80,7 +80,7 @@ pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: b
     let dir_esc = dir.replace('\'', "'\\''");
     // Prefix for git commands: sets GIT_SSH_COMMAND when a GitHub key is provided.
     let git_prefix = github_ssh_key
-        .map(|k| shell_git_ssh_command_prefix(k))
+        .map(shell_git_ssh_command_prefix)
         .unwrap_or_default();
 
     // Build remote command: cd to dir_repos, then clone if missing
@@ -131,8 +131,8 @@ fi",
 /// Leading `~/` is converted to `$HOME/` so the remote shell expands it correctly.
 /// The result is ready to prepend to a shell command, e.g. `"<result> git clone ..."`.
 fn shell_git_ssh_command_prefix(key: &str) -> String {
-    let key_path = if key.starts_with("~/") {
-        format!("$HOME/{}", &key[2..])
+    let key_path = if let Some(stripped) = key.strip_prefix("~/") {
+        format!("$HOME/{}", stripped)
     } else if key == "~" {
         "$HOME".to_string()
     } else {
@@ -192,8 +192,8 @@ fn build_check_push_extra_env(env: &CheckPushEnv) -> String {
     }
     if let Some(key) = &env.github_ssh_key {
         // Use double-quote form so that $HOME (from ~/...) is expanded on the remote shell.
-        let key_path = if key.starts_with("~/") {
-            format!("$HOME/{}", &key[2..])
+        let key_path = if let Some(stripped) = key.strip_prefix("~/") {
+            format!("$HOME/{}", stripped)
         } else {
             key.clone()
         };

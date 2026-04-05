@@ -82,7 +82,7 @@ fn poll_changed_repos(
     let mut changed_repos = HashSet::new();
     let mut failed_repos = HashSet::new();
 
-    eprintln!("{}", console::info("checking repos on controller node..."));
+    console::log_info("checking repos on controller node...");
 
     let referenced = config.repos_referenced_by_hosts();
     let results: Vec<(String, anyhow::Result<String>)> = std::thread::scope(|s| {
@@ -93,7 +93,7 @@ fn poll_changed_repos(
             .map(|(repo_name, repo_def)| {
                 let repo_name = repo_name.clone();
                 let git_url = repo_def.git_url.clone();
-                eprintln!("{}", console::verbose(format!("checking repo [{}]: {}", repo_name, git_url)));
+                console::log_verbose(format!("checking repo [{}]: {}", repo_name, git_url));
                 s.spawn(move || (repo_name, ops::remote_refs_fingerprint(&git_url)))
             })
             .collect();
@@ -109,13 +109,7 @@ fn poll_changed_repos(
                 last_refs.insert(repo_name, fingerprint);
             }
             Err(e) => {
-                eprintln!(
-                    "{}",
-                    console::warning(format!(
-                        "checking failed for repo [{}]: {}",
-                        repo_name, e
-                    ))
-                );
+                console::log_warning(format!("checking failed for repo [{}]: {}", repo_name, e));
                 failed_repos.insert(repo_name);
             }
         }
@@ -146,16 +140,10 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
-        eprintln!(
-            "{}",
-            console::info(format!("Check host {{ {} }} -->", host_id))
-        );
+        console::log_info(format!("Check host {{ {} }} -->", host_id));
 
         if let Err(e) = ops::check_git_available(host).context("check git/ssh available") {
-            eprintln!(
-                "{}",
-                console::error(format!("Error {{ {} }}: {}", host_id, e))
-            );
+            console::log_error(format!("Error {{ {} }}: {}", host_id, e));
             failures.push(format!("{{ {} }}: {}", host_id, e));
             continue;
         }
@@ -185,10 +173,7 @@ fi",
             );
 
             if let Err(e) = crate::ssh::ssh_run(host, &command) {
-                eprintln!(
-                    "{}",
-                    console::error(format!("Error {{ {} }}: {}", host_id, e))
-                );
+                console::log_error(format!("Error {{ {} }}: {}", host_id, e));
                 failures.push(format!("{{ {} }}: {}", host_id, e));
             }
         }
@@ -211,50 +196,35 @@ fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyho
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
-        eprintln!(
-            "{}",
-            console::info(format!("Prepare host {{ {} }} -->", host_id))
-        );
+        console::log_info(format!("Prepare host {{ {} }} -->", host_id));
 
         let dir_repos = config.dir_repos_for_host(host_id);
         let dir_copies = config.dir_copies_for_host(host_id);
 
         if let Err(e) = ops::check_git_available(host).context("check git available") {
-            eprintln!(
-                "{}",
-                console::error(format!("Error {{ {} }}: {}", host_id, e))
-            );
+            console::log_error(format!("Error {{ {} }}: {}", host_id, e));
             failures.push(format!("{{ {} }}: {}", host_id, e));
             continue;
         }
 
         if let Err(e) = ops::check_docker_available(host) {
-            eprintln!(
-                "{}",
-                console::warning(format!("Warning {{ {} }}: {} (optional)", host_id, e))
-            );
+            console::log_warning(format!("Warning {{ {} }}: {} (optional)", host_id, e));
         }
 
         if let Err(e) = ops::create_dirs(host, &dir_repos, &dir_copies).context("create_dirs") {
-            eprintln!(
-                "{}",
-                console::error(format!("Error {{ {} }}: {}", host_id, e))
-            );
+            console::log_error(format!("Error {{ {} }}: {}", host_id, e));
             failures.push(format!("{{ {} }}: {}", host_id, e));
             continue;
         }
 
         for repo in config.repos_for_host(host_id) {
             if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, ignore_missing, host.github_ssh_key.as_deref()) {
-                eprintln!(
-                    "{}",
-                    console::error(format!("Error {{ {} }}: {} (continuing)", host_id, e))
-                );
+                console::log_error(format!("Error {{ {} }}: {} (continuing)", host_id, e));
                 failures.push(format!("{{ {} }}: {}", host_id, e));
             }
         }
     }
-    println!("{}", console::info("Prepare DONE\n"));
+    console::log_info("Prepare DONE\n");
 
     if failures.is_empty() {
         Ok(())
@@ -280,53 +250,27 @@ fn run_cycle(
     skip_poll: bool,
 ) {
     let (changed_repos, failed_repos) = if skip_poll {
-        eprintln!(
-            "{}",
-            console::info(format!(
-                "watch round {} [webhook] (hosts: {})",
-                round,
-                config.hosts.len()
-            ))
-        );
-        eprintln!(
-            "{}",
-            console::info("watch: webhook triggered, running remote check-push for all hosts")
-        );
+        console::log_info(format!("watch round {} [webhook] (hosts: {})", round, config.hosts.len()));
+        console::log_info("watch: webhook triggered, running remote check-push for all hosts");
         (HashSet::new(), HashSet::new())
     } else {
-        eprintln!(
-            "{}",
-            console::info(format!(
-                "watch round {} (hosts: {})",
-                round,
-                config.hosts.len()
-            ))
-        );
+        console::log_info(format!("watch round {} (hosts: {})", round, config.hosts.len()));
 
         let (changed, failed) = poll_changed_repos(config, last_remote_refs);
 
         if !first_round {
             if changed.is_empty() {
-                eprintln!(
-                    "{}",
-                    console::highlight("watch: no upstream repo changes detected in this round")
-                );
+                console::log_highlight("watch: no upstream repo changes detected in this round");
             } else {
                 let mut changed_sorted: Vec<_> = changed.iter().cloned().collect();
                 changed_sorted.sort();
-                eprintln!(
-                    "{}",
-                    console::highlight(format!(
-                        "watch: upstream repo change detected: [{}]",
-                        changed_sorted.join(", ")
-                    ))
-                );
+                console::log_highlight(format!(
+                    "watch: upstream repo change detected: [{}]",
+                    changed_sorted.join(", ")
+                ));
             }
         } else {
-            eprintln!(
-                "{}",
-                console::highlight("watch: initial round, running remote check-push for all hosts")
-            );
+            console::log_highlight("watch: initial round, running remote check-push for all hosts");
         }
         (changed, failed)
     };
@@ -359,22 +303,16 @@ fn run_cycle(
                     &failed_repos,
                 );
                 if !should_run {
-                    eprintln!(
-                        "{}",
-                        console::info(format!(
-                            "watch: skip host {{{}}} (no remote repo changes)",
-                            host_id
-                        ))
-                    );
+                    console::log_info(format!(
+                        "watch: skip host {{{}}} (no remote repo changes)",
+                        host_id
+                    ));
                 }
                 if has_probe_failure && !first_round && !has_changed_repo && should_run {
-                    eprintln!(
-                        "{}",
-                        console::warning(format!(
-                            "watch: host {{{}}} has probe failures, running remote check-push defensively",
-                            host_id
-                        ))
-                    );
+                    console::log_warning(format!(
+                        "watch: host {{{}}} has probe failures, running remote check-push defensively",
+                        host_id
+                    ));
                 }
                 should_run
             };
@@ -420,14 +358,14 @@ fn run_cycle(
                     CHECK_PUSH_SCRIPT,
                     &check_push_env,
                 ) {
-                    eprintln!("{}", console::error(format!("Failed on {{{}}}: {}", host_id, e)));
+                    console::log_error(format!("Failed on {{{}}}: {}", host_id, e));
                 }
             });
         }
     });
 
     if any_host_ran {
-        eprintln!("{}", console::info(format!("watch round {} done", round)));
+        console::log_info(format!("watch round {} done", round));
     }
 }
 
@@ -435,7 +373,7 @@ fn run_cycle(
 /// Falls back to a plain sleep when stderr is not a terminal (e.g. piped logs).
 async fn countdown_wait(duration: Duration) {
     let total_secs = duration.as_secs();
-    if std::io::stderr().is_terminal() {
+    if console::log_level() >= 2 && std::io::stderr().is_terminal() {
         for remaining in (1..=total_secs).rev() {
             eprint!(
                 "\r{}",
@@ -446,7 +384,7 @@ async fn countdown_wait(duration: Duration) {
         // Clear the countdown line before the next log line is printed
         eprint!("\r{:40}\r", "");
     } else {
-        eprintln!("{}", console::verbose(format!("watch: next round in {}s...", total_secs)));
+        console::log_verbose(format!("watch: next round in {}s...", total_secs));
         tokio::time::sleep(duration).await;
     }
 }
@@ -482,7 +420,7 @@ pub async fn run_watch(
             false
         } else {
             if opts.interval_secs == 0 {
-                eprintln!("{}", console::info("interval is 0, run once and quit"));
+                console::log_info("interval is 0, run once and quit");
                 break;
             }
 
@@ -490,7 +428,7 @@ pub async fn run_watch(
                 Some(d) => {
                     let remaining = d.saturating_duration_since(Instant::now());
                     if remaining.is_zero() {
-                        eprintln!("{}", console::info("watch timeout reached, stopping"));
+                        console::log_info("watch timeout reached, stopping");
                         break;
                     }
                     remaining.min(interval)
@@ -549,13 +487,13 @@ pub fn run_local_watch(interval_secs: u64, timeout_secs: Option<u64>) -> Result<
 
     loop {
         round += 1;
-        eprintln!("{}", console::info(format!("local watch round {}", round)));
+        console::log_info(format!("local watch round {}", round));
 
         if let Err(e) = ops::run_check_push_local(CHECK_PUSH_SCRIPT) {
-            eprintln!("{}", console::error(format!("Error: {}", e)));
+            console::log_error(format!("Error: {}", e));
         }
 
-        eprintln!("{}", console::info(format!("local watch round {} done", round)));
+        console::log_info(format!("local watch round {} done", round));
 
         if interval_secs == 0 {
             break;
@@ -564,18 +502,18 @@ pub fn run_local_watch(interval_secs: u64, timeout_secs: Option<u64>) -> Result<
         if let Some(d) = deadline {
             let remaining = d.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
-                eprintln!("{}", console::info("watch timeout reached, stopping"));
+                console::log_info("watch timeout reached, stopping");
                 break;
             }
-            eprintln!("{}", console::info("waiting for next check ..."));
+            console::log_info("waiting for next check ...");
             std::thread::sleep(remaining.min(interval));
         } else {
-            eprintln!("{}", console::info("waiting for next check ..."));
+            console::log_info("waiting for next check ...");
             std::thread::sleep(interval);
         }
 
         if deadline.is_some_and(|d| Instant::now() >= d) {
-            eprintln!("{}", console::info("watch timeout reached, stopping"));
+            console::log_info("watch timeout reached, stopping");
             break;
         }
     }

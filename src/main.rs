@@ -51,7 +51,7 @@ fn load_config_or_exit(path: &std::path::Path) -> CentralConfig {
     match CentralConfig::load(path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{}", console::error(format!("Error loading config: {}", e)));
+            console::log_error(format!("Error loading config: {}", e));
             std::process::exit(1);
         }
     }
@@ -99,9 +99,9 @@ fn main() {
         }
         Command::Check => {
             let path = config_path.unwrap_or_else(|| {
-                eprintln!("{}", console::error(
+                console::log_error(
                     "no config file found; use --config or create ~/.config/git-supervisor/deployments.yaml"
-                ));
+                );
                 std::process::exit(1);
             });
             let config = load_config_or_exit(&path);
@@ -109,7 +109,7 @@ fn main() {
         }
         Command::Watch(args) => {
             if let Err(msg) = validate_webhook_args(args) {
-                eprintln!("{}", console::error(format!("Error: {}", msg)));
+                console::log_error(format!("Error: {}", msg));
                 std::process::exit(1);
             }
             match config_path {
@@ -130,7 +130,7 @@ fn main() {
                     ))
                 }
                 None => {
-                    eprintln!("{}", console::info("no config found, running in local mode"));
+                    console::log_info("no config found, running in local mode");
                     run_local_watch(args.interval, args.timeout)
                 }
             }
@@ -138,7 +138,7 @@ fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("{}", console::error(format!("Error: {}", e)));
+        console::log_error(format!("Error: {}", e));
         std::process::exit(1);
     }
 }
