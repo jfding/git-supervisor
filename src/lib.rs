@@ -289,6 +289,7 @@ fn run_cycle(
     };
 
     let mut any_host_ran = false;
+    let mut skipped_hosts: Vec<String> = Vec::new();
     std::thread::scope(|s| {
         for (host_id, host) in &config.hosts {
             let host_id = host_id.clone();
@@ -316,10 +317,7 @@ fn run_cycle(
                     &failed_repos,
                 );
                 if !should_run {
-                    console::log_info(format!(
-                        "watch: skip host {{{}}} (no remote repo changes)",
-                        host_id
-                    ));
+                    skipped_hosts.push(host_id.clone());
                 }
                 if has_probe_failure && !first_round && !has_changed_repo && should_run {
                     console::log_warning(format!(
@@ -377,6 +375,13 @@ fn run_cycle(
         }
     });
 
+    if !skipped_hosts.is_empty() {
+        let ids: Vec<_> = skipped_hosts.iter().map(|h| format!("{{{}}}", h)).collect();
+        console::log_info(format!(
+            "watch: skip {} (no remote repo changes)",
+            ids.join(", ")
+        ));
+    }
     if any_host_ran {
         console::log_info(format!("watch: round {} done", round));
     }
