@@ -273,7 +273,7 @@ fn run_cycle(
 
         if !first_round {
             if changed.is_empty() {
-                console::log_highlight("watch: no upstream repo changes detected in this round");
+                console::log_highlight("watch: no upstream repo changes detected, skipping all hosts");
             } else {
                 let mut changed_sorted: Vec<_> = changed.iter().cloned().collect();
                 changed_sorted.sort();
@@ -375,14 +375,10 @@ fn run_cycle(
         }
     });
 
-    if !skipped_hosts.is_empty() {
-        let ids: Vec<_> = skipped_hosts.iter().map(|h| format!("{{{}}}", h)).collect();
-        console::log_info(format!(
-            "watch: skip {} (no remote repo changes)",
-            ids.join(", ")
-        ));
-    }
     if any_host_ran {
+        if !skipped_hosts.is_empty() {
+            console::log_info(format!("watch: skip {{{}}} (no remote repo changes)", skipped_hosts.join(", ")));
+        }
         console::log_info(format!("watch: round {} done", round));
     }
 }
