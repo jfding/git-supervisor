@@ -9,33 +9,46 @@ pub fn log_level() -> u8 {
         .unwrap_or(2)
 }
 
+fn log_with_timestamp(text: impl AsRef<str>) {
+    eprintln!("{} {}",
+        chrono::Local::now().format("%m-%d %H:%M:%S>"),
+        text.as_ref());
+}
+
+/// Print a debug (level 3) message to stderr when LOGLEVEL >= 3.
+pub fn log_debug(text: impl AsRef<str>) {
+    if log_level() >= 3 {
+        log_with_timestamp(debug(text));
+    }
+}
+
 /// Print a verbose (level 2) message to stderr when LOGLEVEL >= 2.
 pub fn log_verbose(text: impl AsRef<str>) {
     if log_level() >= 2 {
-        eprintln!("{}", verbose(text));
+        log_with_timestamp(verbose(text));
     }
 }
 
 /// Print an info (level 1) message to stderr when LOGLEVEL >= 1.
 pub fn log_info(text: impl AsRef<str>) {
     if log_level() >= 1 {
-        eprintln!("{}", info(text));
+        log_with_timestamp(info(text));
     }
 }
 
 /// Print a highlight (level 0) message to stderr — always shown.
 pub fn log_highlight(text: impl AsRef<str>) {
-    eprintln!("{}", highlight(text));
+    log_with_timestamp(highlight(text));
 }
 
 /// Print a warning (level 0) message to stderr — always shown.
 pub fn log_warning(text: impl AsRef<str>) {
-    eprintln!("{}", warning(text));
+    log_with_timestamp(warning(text));
 }
 
 /// Print an error (level 0) message to stderr — always shown.
 pub fn log_error(text: impl AsRef<str>) {
-    eprintln!("{}", error(text));
+    log_with_timestamp(error(text));
 }
 
 #[derive(Copy, Clone)]
@@ -45,6 +58,7 @@ pub enum Color {
     Green,
     Grey,
     Blue,
+    Cyan,
 }
 
 pub fn color_enabled() -> bool {
@@ -73,6 +87,7 @@ pub fn paint(text: impl AsRef<str>, color: Color) -> String {
         Color::Green => 32,
         Color::Grey => 90,
         Color::Blue => 34,
+        Color::Cyan => 36,
     };
 
     format!("\x1b[{code}m{text}\x1b[0m")
@@ -98,6 +113,10 @@ pub fn info(text: impl AsRef<str>) -> String {
     paint(text, Color::Blue)
 }
 
+pub fn debug(text: impl AsRef<str>) -> String {
+    paint(text, Color::Cyan)
+}
+
 pub fn shell_printf(text: &str, color: Option<Color>) -> String {
     let text = text.replace('\'', "'\\''");
     let format = match color.filter(|_| color_enabled()) {
@@ -106,6 +125,7 @@ pub fn shell_printf(text: &str, color: Option<Color>) -> String {
         Some(Color::Green) => "\\033[32m%s\\033[0m\\n",
         Some(Color::Blue) => "\\033[34m%s\\033[0m\\n",
         Some(Color::Grey) => "\\033[90m%s\\033[0m\\n",
+        Some(Color::Cyan) => "\\033[36m%s\\033[0m\\n",
         None => "%s\\n",
     };
 
@@ -120,6 +140,7 @@ pub fn shell_printf_inline(text: &str, color: Option<Color>) -> String {
         Some(Color::Green) => "\\033[32m%s\\033[0m",
         Some(Color::Blue) => "\\033[34m%s\\033[0m",
         Some(Color::Grey) => "\\033[90m%s\\033[0m",
+        Some(Color::Cyan) => "\\033[36m%s\\033[0m",
         None => "%s",
     };
 

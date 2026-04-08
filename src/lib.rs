@@ -83,11 +83,16 @@ fn poll_changed_repos(
     let mut changed_repos = HashSet::new();
     let mut failed_repos = HashSet::new();
 
-    if !quiet {
-        console::log_info("checking repos on controller node...");
-    }
-
     let referenced = config.repos_referenced_by_hosts();
+
+    if !quiet {
+        let mut names: Vec<&str> = referenced.iter().map(|s| s.as_str()).collect();
+        names.sort_unstable();
+        console::log_info(format!(
+            "checking repos on controller node: [{}]",
+            names.join(", ")
+        ));
+    }
     let results: Vec<(String, anyhow::Result<String>)> = std::thread::scope(|s| {
         let handles: Vec<_> = config
             .repos
@@ -97,7 +102,7 @@ fn poll_changed_repos(
                 let repo_name = repo_name.clone();
                 let git_url = repo_def.git_url.clone();
                 if !quiet {
-                    console::log_verbose(format!("checking repo [{}]: {}", repo_name, git_url));
+                    console::log_debug(format!("checking repo [{}]: {}", repo_name, git_url));
                 }
                 s.spawn(move || (repo_name, ops::remote_refs_fingerprint(&git_url)))
             })
@@ -284,6 +289,7 @@ fn run_cycle(
     };
 
     let mut any_host_ran = false;
+    let mut skipped_hosts: Vec<String> = Vec::new();
     std::thread::scope(|s| {
         for (host_id, host) in &config.hosts {
             let host_id = host_id.clone();
@@ -311,10 +317,7 @@ fn run_cycle(
                     &failed_repos,
                 );
                 if !should_run {
-                    console::log_info(format!(
-                        "watch: skip host {{{}}} (no remote repo changes)",
-                        host_id
-                    ));
+                    skipped_hosts.push(host_id.clone());
                 }
                 if has_probe_failure && !first_round && !has_changed_repo && should_run {
                     console::log_warning(format!(
@@ -372,6 +375,13 @@ fn run_cycle(
         }
     });
 
+    if !skipped_hosts.is_empty() {
+        let ids: Vec<_> = skipped_hosts.iter().map(|h| format!("{{{}}}", h)).collect();
+        console::log_info(format!(
+            "watch: skip {} (no remote repo changes)",
+            ids.join(", ")
+        ));
+    }
     if any_host_ran {
         console::log_info(format!("watch: round {} done", round));
     }
