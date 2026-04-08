@@ -83,11 +83,16 @@ fn poll_changed_repos(
     let mut changed_repos = HashSet::new();
     let mut failed_repos = HashSet::new();
 
-    if !quiet {
-        console::log_info("checking repos on controller node...");
-    }
-
     let referenced = config.repos_referenced_by_hosts();
+
+    if !quiet {
+        let mut names: Vec<&str> = referenced.iter().map(|s| s.as_str()).collect();
+        names.sort_unstable();
+        console::log_info(format!(
+            "checking repos on controller node: [{}]",
+            names.join(", ")
+        ));
+    }
     let results: Vec<(String, anyhow::Result<String>)> = std::thread::scope(|s| {
         let handles: Vec<_> = config
             .repos
