@@ -102,7 +102,7 @@ fn poll_changed_repos(
                 let repo_name = repo_name.clone();
                 let git_url = repo_def.git_url.clone();
                 if !quiet {
-                    console::log_verbose(format!("checking repo [{}]: {}", repo_name, git_url));
+                    console::log_debug(format!("checking repo [{}]: {}", repo_name, git_url));
                 }
                 s.spawn(move || (repo_name, ops::remote_refs_fingerprint(&git_url)))
             })
