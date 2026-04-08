@@ -165,23 +165,21 @@ function _full_refresh_checkout_branch_into_dir {
   }
 
   # Swap: clean destination contents (keeping dot-files), move staging contents in.
-  local _fail=0
   shopt -s dotglob nullglob
 
   local _e
   for _e in "${_cp_path}/"*; do
     [[ -f "$_e" && "$(basename "$_e")" == .* ]] && continue
-    rm -rf -- "$_e" || { _fail=1; break; }
+    rm -rf -- "$_e" || warn "..failed to remove [$_e], skipped"
   done
 
-  if (( ! _fail )); then
-    local _new=("${_staging}"/*)
-    (( ${#_new[@]} > 0 )) && { mv -f -- "${_new[@]}" "${_cp_path}/" || _fail=1; }
-  fi
+  local _new=("${_staging}"/*)
+  (( ${#_new[@]} > 0 )) && {
+     mv -f -- "${_new[@]}" "${_cp_path}/" || warn "..failed to copy-in [${_new[@]}], skipped"
+  }
 
   shopt -u dotglob nullglob
   _safe_rm_rf_copies "${_staging}" || true
-  return $_fail
 }
 
 # Sort version-like tags in descending order
