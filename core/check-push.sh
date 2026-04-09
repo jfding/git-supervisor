@@ -140,9 +140,10 @@ function _safe_rm_rf_copies {
   rm -rf -- "${_target}"
 }
 
-# Full refresh: checkout into staging dir, preserve flag files,
-# clean destination contents, move staging contents in, remove staging.
-# actually, to replace the old 'rsync --delete' operation.
+# Full refresh: extract branch into staging, then replace copy dir contents while
+# keeping top-level dotfiles that are regular files (e.g. .git-rev). Same rule for
+# rsync and mv. Prefer rsync when available; fallback to mv. Paths that cannot be
+# removed or overwritten are skipped with a warning so the run is not aborted.
 function _full_refresh_checkout_branch_into_dir {
   local _br=$1 _cp_path=$2
 
@@ -164,21 +165,32 @@ function _full_refresh_checkout_branch_into_dir {
     err "failed to copy files for [ ${_br} ]"; return 1
   }
 
-  # Swap: clean destination contents (keeping dot-files), move staging contents in.
+  # Strip destination except top-level dotfiles (files only); then merge staging in.
+  # Matches prior non-rsync behavior; rsync uses -a without --delete because cleanup
+  # already removed old tree content. rm/rsync failures on immutable or busy paths are
+  # warned and skipped so the refresh does not abort the whole supervisor loop.
   shopt -s dotglob nullglob
-
   local _e
   for _e in "${_cp_path}/"*; do
     [[ -f "$_e" && "$(basename "$_e")" == .* ]] && continue
-    rm -rf -- "$_e" || warn "..failed to remove [$_e], skipped"
+    rm -rf -- "$_e" || warn "..failed to remove [$_e] (busy or permission?), skipped"
   done
-
-  local _new=("${_staging}"/*)
-  (( ${#_new[@]} > 0 )) && {
-     mv -f -- "${_new[@]}" "${_cp_path}/" || warn "..failed to copy-in [${_new[@]}], skipped"
-  }
-
   shopt -u dotglob nullglob
+
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --ignore-errors -- "${_staging}/" "${_cp_path}/" || {
+      warn "..rsync had errors merging [${_staging}] into [${_cp_path}] (e.g. locked paths); continuing"
+    }
+  else
+    shopt -s dotglob nullglob
+    local _new
+    for _new in "${_staging}"/*; do
+      [[ -e "$_new" ]] || continue
+      mv -f -- "$_new" "${_cp_path}/" || warn "..failed to move-in [$_new] (busy or permission?), skipped"
+    done
+    shopt -u dotglob nullglob
+  fi
+
   _safe_rm_rf_copies "${_staging}" || true
 }
 
@@ -726,8 +738,12 @@ function check_required_commands {
   for c in git tar; do
     command -v "$c" >/dev/null || { err "missing command: $c"; exit 1; }
   done
+
   # check for optional 'docker' support
   command -v docker >/dev/null || warn "docker cli not found, will skip docker restart handling"
+
+  # check for optional 'rsync' support
+  command -v rsync >/dev/null || warn "rsync not found, will use plain file copies"
 }
 
 ### __main__ ###
