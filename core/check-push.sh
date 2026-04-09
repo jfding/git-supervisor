@@ -141,8 +141,8 @@ function _safe_rm_rf_copies {
 }
 
 # Full refresh: checkout into staging dir, preserve flag files,
-# clean destination contents, move staging contents in, remove staging.
-# actually, to replace the old 'rsync --delete' operation.
+# clean destination contents, sync staging contents in, remove staging.
+# Prefer rsync for syncing when available; fallback to mv.
 function _full_refresh_checkout_branch_into_dir {
   local _br=$1 _cp_path=$2
 
@@ -175,7 +175,11 @@ function _full_refresh_checkout_branch_into_dir {
 
   local _new=("${_staging}"/*)
   (( ${#_new[@]} > 0 )) && {
-     mv -f -- "${_new[@]}" "${_cp_path}/" || warn "..failed to copy-in [${_new[@]}], skipped"
+    if command -v rsync >/dev/null 2>&1; then
+      rsync -a -- "${_staging}/" "${_cp_path}/" || warn "..failed to rsync-in [${_staging}], skipped"
+    else
+      mv -f -- "${_new[@]}" "${_cp_path}/" || warn "..failed to copy-in [${_new[@]}], skipped"
+    fi
   }
 
   shopt -u dotglob nullglob
