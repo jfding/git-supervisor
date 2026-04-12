@@ -80,6 +80,24 @@ GITHUB_WEBHOOK_SECRET=MY_SECRET git-supervisor watch --webhook-port 8080
 
 If `--webhook-port` is set without a secret, a warning is printed and webhook listening is skipped.
 
+### Triggering refresh via SIGUSR1
+
+Send `SIGUSR1` to the running `watch` process to trigger an immediate all-host refresh (same behavior as a webhook push event — skips polling, refreshes every host unconditionally).
+
+The PID is written to `/tmp/git-supervisor.pid` at startup and removed on exit. On bare metal:
+
+```bash
+kill -SIGUSR1 $(cat /tmp/git-supervisor.pid)
+```
+
+In Docker:
+
+```bash
+docker kill --signal=SIGUSR1 <container_name>
+```
+
+Multiple signals received while a cycle is already running are coalesced automatically.
+
 ### Local mode (no deployments.yaml)
 
 When `watch` cannot find a config file (`--config`, `~/.config/git-supervisor/deployments.yaml`,
