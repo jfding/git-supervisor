@@ -113,7 +113,7 @@ fn poll_changed_repos(
         let mut names: Vec<&str> = referenced.iter().map(|s| s.as_str()).collect();
         names.sort_unstable();
         console::log_info(format!(
-            "checking repos on controller node: [{}]",
+            "polling repos: [{}]",
             names.join(", ")
         ));
     }
@@ -126,7 +126,7 @@ fn poll_changed_repos(
                 let repo_name = repo_name.clone();
                 let git_url = repo_def.git_url.clone();
                 if !quiet {
-                    console::log_debug(format!("checking repo [{}]: {}", repo_name, git_url));
+                    console::log_debug(format!("polling repo [{}]: {}", repo_name, git_url));
                 }
                 s.spawn(move || (repo_name, ops::remote_refs_fingerprint(&git_url)))
             })
@@ -143,7 +143,7 @@ fn poll_changed_repos(
                 last_refs.insert(repo_name, fingerprint);
             }
             Err(e) => {
-                console::log_warning(format!("checking failed for repo [{}]: {}", repo_name, e));
+                console::log_warning(format!("polling failed for repo [{}]: {}", repo_name, e));
                 failed_repos.insert(repo_name);
             }
         }
@@ -425,7 +425,6 @@ fn run_cycle(
         if !skipped_hosts.is_empty() {
             console::log_info(format!("watch: skip {{{}}} (no remote repo changes)", skipped_hosts.join(", ")));
         }
-        console::log_info(format!("watch: round {} done", round));
     }
 }
 

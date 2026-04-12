@@ -173,7 +173,7 @@ function _full_refresh_checkout_branch_into_dir {
   local _e
   for _e in "${_cp_path}/"*; do
     [[ -f "$_e" && "$(basename "$_e")" == .* ]] && continue
-    rm -rf -- "$_e" || warn "..failed to remove [$_e] (busy or permission?), skipped"
+    rm -rf -- "$_e" 2>/dev/null || warn "failed to remove [$_e] (busy or permission?), skipped"
   done
   shopt -u dotglob nullglob
 
