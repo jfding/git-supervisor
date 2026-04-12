@@ -2,6 +2,7 @@ use anyhow::Context;
 use std::collections::{HashMap, HashSet};
 use std::io::IsTerminal;
 use std::time::{Duration, Instant};
+use tokio::signal::unix::{signal, SignalKind};
 
 pub mod config;
 pub mod console;
@@ -273,10 +274,11 @@ fn run_cycle(
     round: u64,
     first_round: bool,
     skip_poll: bool,
+    trigger_label: &str,
     wh_tag: &str,
 ) {
     let (changed_repos, failed_repos) = if skip_poll {
-        console::log_info(format!("watch: round {} [webhook triggered] refreshing all hosts", round));
+        console::log_info(format!("watch: round {} [{} triggered] refreshing all hosts", round, trigger_label));
         // Update ref fingerprints so the next timer-triggered round won't
         // re-detect the same changes and cause a duplicate refresh.
         let _ = poll_changed_repos(config, last_remote_refs, true);
@@ -451,10 +453,19 @@ pub async fn run_watch(
 
     let wh_tag = if webhook_rx.is_some() { " [+webhook]" } else { "" };
 
+    let mut sigusr1 = signal(SignalKind::user_defined1())
+        .context("failed to register SIGUSR1 handler")?;
+
+    console::log_info(format!(
+        "watch: pid {} (send SIGUSR1 to trigger refresh)",
+        std::process::id()
+    ));
+
     loop {
-        // For the first iteration, run immediately (no wait)
-        let skip_poll = if round == 0 {
-            false
+        // For the first iteration, run immediately (no wait).
+        // Each iteration yields (skip_poll, trigger_label) so run_cycle can log the source.
+        let (skip_poll, trigger_label) = if round == 0 {
+            (false, "timer")
         } else {
             if opts.interval_secs == 0 {
                 console::log_highlight("watch: interval is 0, run once and quit");
@@ -473,10 +484,10 @@ pub async fn run_watch(
                 None => interval,
             };
 
-            // Wait for either timer or webhook signal, showing a countdown on terminals
+            // Wait for timer, webhook signal, or SIGUSR1
             tokio::select! {
                 _ = countdown_wait(sleep_duration, wh_tag) => {
-                    false // timer-triggered: poll for changes
+                    (false, "timer")
                 }
                 Some(()) = async {
                     match webhook_rx.as_mut() {
@@ -485,9 +496,15 @@ pub async fn run_watch(
                     }
                 } => {
                     if std::io::stderr().is_terminal() {
-                        eprint!("\r{:40}\r", ""); // clear countdown line
+                        eprint!("\r{:40}\r", "");
                     }
-                    true // webhook-triggered: skip polling
+                    (true, "webhook")
+                }
+                _ = sigusr1.recv() => {
+                    if std::io::stderr().is_terminal() {
+                        eprint!("\r{:40}\r", "");
+                    }
+                    (true, "signal")
                 }
             }
         };
@@ -502,8 +519,9 @@ pub async fn run_watch(
         // run_cycle uses std::thread::scope (blocking SSH), so run in spawn_blocking
         let config_clone = config.clone();
         let mut refs = std::mem::take(&mut last_remote_refs);
+        let trigger_label = trigger_label.to_string();
         let returned_refs = tokio::task::spawn_blocking(move || {
-            run_cycle(&config_clone, &mut refs, round, first_round, skip_poll, wh_tag);
+            run_cycle(&config_clone, &mut refs, round, first_round, skip_poll, &trigger_label, wh_tag);
             refs
         })
         .await?;

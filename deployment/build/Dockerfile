@@ -25,4 +25,7 @@ ENV GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no"
 
 ENV TIMER_INTERVAL=120
 ENV WEBHOOK_PORT=9870
+
+# Send SIGUSR1 to trigger immediate refresh: docker kill --signal=SIGUSR1 <container>
+STOPSIGNAL SIGTERM
 CMD ["/bin/sh", "-c", "exec /git-supervisor watch --interval \"${TIMER_INTERVAL:-120}\" --webhook-port \"${WEBHOOK_PORT:-9870}\""]
