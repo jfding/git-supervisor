@@ -125,6 +125,12 @@ impl CentralConfig {
             anyhow::bail!("Config must have at least one host under 'hosts'");
         }
         for (host_id, host) in &config.hosts {
+            if host.repos.is_empty() {
+                eprintln!(
+                    "warning: host '{}' has no repos configured; it will be skipped at runtime",
+                    host_id
+                );
+            }
             for ref_ in &host.repos {
                 let name = ref_.name();
                 if !config.repos.contains_key(name) {

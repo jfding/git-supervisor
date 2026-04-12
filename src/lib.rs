@@ -134,7 +134,10 @@ fn should_run_host_remote(
     changed_repos: &HashSet<String>,
     failed_repos: &HashSet<String>,
 ) -> bool {
-    if first_round || host_repo_names.is_empty() {
+    if host_repo_names.is_empty() {
+        return false;
+    }
+    if first_round {
         return true;
     }
     host_repo_names
@@ -150,6 +153,10 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
+        if config.repos_for_host(host_id).is_empty() {
+            console::log_info(format!("Check host {{ {} }} --> skipped (no repos configured)", host_id));
+            continue;
+        }
         console::log_info(format!("Check host {{ {} }} -->", host_id));
 
         if let Err(e) = ops::check_git_available(host).context("check git/ssh available") {
@@ -206,6 +213,10 @@ fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyho
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
+        if config.repos_for_host(host_id).is_empty() {
+            console::log_info(format!("Prepare host {{ {} }} --> skipped (no repos configured)", host_id));
+            continue;
+        }
         console::log_info(format!("Prepare host {{ {} }} -->", host_id));
 
         let dir_repos = config.dir_repos_for_host(host_id);
@@ -299,6 +310,10 @@ fn run_cycle(
                 .into_iter()
                 .map(|r| r.name)
                 .collect();
+
+            if host_repo_names.is_empty() {
+                continue;
+            }
 
             // Webhook-triggered cycles always run all hosts
             let should_run_remote = if skip_poll {
@@ -595,12 +610,25 @@ mod tests {
     }
 
     #[test]
-    fn should_run_host_remote_runs_for_empty_host_repo_list() {
+    fn should_run_host_remote_skips_empty_host_repo_list() {
         let host_repo_names = vec![];
         let changed = HashSet::new();
         let failed = HashSet::new();
-        assert!(should_run_host_remote(
+        assert!(!should_run_host_remote(
             false,
+            &host_repo_names,
+            &changed,
+            &failed
+        ));
+    }
+
+    #[test]
+    fn should_run_host_remote_skips_empty_host_repo_list_even_first_round() {
+        let host_repo_names = vec![];
+        let changed = HashSet::new();
+        let failed = HashSet::new();
+        assert!(!should_run_host_remote(
+            true,
             &host_repo_names,
             &changed,
             &failed
