@@ -153,11 +153,13 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
-        if config.repos_for_host(host_id).is_empty() {
-            console::log_info(format!("Check host {{ {} }} --> skipped (no repos configured)", host_id));
+        if !host.is_wildcard() && config.repos_for_host(host_id).is_empty() {
+            console::log_info(format!("Check host {{ {} }} --> skipped (repos: [] is empty)", host_id));
             continue;
         }
-        console::log_info(format!("Check host {{ {} }} -->", host_id));
+
+        let label = if host.is_wildcard() { " (wildcard)" } else { "" };
+        console::log_info(format!("Check host {{ {} }}{} -->", host_id, label));
 
         if let Err(e) = ops::check_git_available(host).context("check git/ssh available") {
             console::log_error(format!("Error {{ {} }}: {}", host_id, e));
@@ -213,11 +215,13 @@ fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyho
     let mut failures: Vec<String> = Vec::new();
 
     for (host_id, host) in &config.hosts {
-        if config.repos_for_host(host_id).is_empty() {
-            console::log_info(format!("Prepare host {{ {} }} --> skipped (no repos configured)", host_id));
+        if !host.is_wildcard() && config.repos_for_host(host_id).is_empty() {
+            console::log_info(format!("Prepare host {{ {} }} --> skipped (repos: [] is empty)", host_id));
             continue;
         }
-        console::log_info(format!("Prepare host {{ {} }} -->", host_id));
+
+        let label = if host.is_wildcard() { " (wildcard)" } else { "" };
+        console::log_info(format!("Prepare host {{ {} }}{} -->", host_id, label));
 
         let dir_repos = config.dir_repos_for_host(host_id);
         let dir_copies = config.dir_copies_for_host(host_id);
@@ -305,18 +309,20 @@ fn run_cycle(
         for (host_id, host) in &config.hosts {
             let host_id = host_id.clone();
             let dir_base = config.dir_base_for_host(&host_id).clone();
+            let is_wildcard = host.is_wildcard();
             let host_repo_names: Vec<String> = config
                 .repos_for_host(&host_id)
                 .into_iter()
                 .map(|r| r.name)
                 .collect();
 
-            if host_repo_names.is_empty() {
+            if !is_wildcard && host_repo_names.is_empty() {
                 continue;
             }
 
-            // Webhook-triggered cycles always run all hosts
-            let should_run_remote = if skip_poll {
+            // Wildcard hosts always run (we can't poll repos we don't know about).
+            // Webhook-triggered cycles always run all hosts.
+            let should_run_remote = if is_wildcard || skip_poll {
                 true
             } else {
                 let has_changed_repo = host_repo_names
@@ -610,7 +616,7 @@ mod tests {
     }
 
     #[test]
-    fn should_run_host_remote_skips_empty_host_repo_list() {
+    fn should_run_host_remote_skips_explicitly_empty_host_repo_list() {
         let host_repo_names = vec![];
         let changed = HashSet::new();
         let failed = HashSet::new();
@@ -623,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn should_run_host_remote_skips_empty_host_repo_list_even_first_round() {
+    fn should_run_host_remote_skips_explicitly_empty_even_first_round() {
         let host_repo_names = vec![];
         let changed = HashSet::new();
         let failed = HashSet::new();

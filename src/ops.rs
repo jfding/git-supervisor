@@ -260,7 +260,7 @@ pub fn run_check_push_local(script: &str) -> Result<()> {
         github_ssh_key: None,
         ssh_forward_agent: None,
         dir_base: None,
-        repos: vec![],
+        repos: Some(vec![]),
         release_count: None,
         release_tag_pattern: None,
         release_tag_exclude_pattern: None,

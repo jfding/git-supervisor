@@ -68,8 +68,10 @@ pub struct Host {
     pub ssh_forward_agent: Option<bool>,
     pub dir_base: Option<String>,
     /// List of repo refs (name or { name, branches? }). Must exist in top-level `repos`.
+    /// `None` (key omitted) = wildcard: scan all repos on disk.
+    /// `Some([])` = explicitly empty: skip this host at runtime.
     #[serde(default)]
-    pub repos: Vec<HostRepoRef>,
+    pub repos: Option<Vec<HostRepoRef>>,
     /// Per-host: number of release tags to consider (top-N). Passed to remote script as RELEASE_TAG_TOPN.
     #[serde(default)]
     pub release_count: Option<u32>,
@@ -79,6 +81,13 @@ pub struct Host {
     /// Per-host: ERE pattern to exclude from release tags. Passed to remote as RELEASE_TAG_EXCLUDE_PATTERN.
     #[serde(default)]
     pub release_tag_exclude_pattern: Option<String>,
+}
+
+impl Host {
+    /// True when the host has no `repos` key at all (wildcard mode: scan all repos on disk).
+    pub fn is_wildcard(&self) -> bool {
+        self.repos.is_none()
+    }
 }
 
 /// Repo definition (git_url only). Key in `repos` map is the repo name. Branches are set per host/repo.
@@ -125,20 +134,25 @@ impl CentralConfig {
             anyhow::bail!("Config must have at least one host under 'hosts'");
         }
         for (host_id, host) in &config.hosts {
-            if host.repos.is_empty() {
-                eprintln!(
-                    "warning: host '{}' has no repos configured; it will be skipped at runtime",
-                    host_id
-                );
-            }
-            for ref_ in &host.repos {
-                let name = ref_.name();
-                if !config.repos.contains_key(name) {
-                    anyhow::bail!(
-                        "Host '{}' references unknown repo '{}'; define it under top-level 'repos'",
-                        host_id,
-                        name
+            match &host.repos {
+                None => {}
+                Some(repos) if repos.is_empty() => {
+                    eprintln!(
+                        "warning: host '{}' has repos: [] (explicitly empty); it will be skipped at runtime",
+                        host_id
                     );
+                }
+                Some(repos) => {
+                    for ref_ in repos {
+                        let name = ref_.name();
+                        if !config.repos.contains_key(name) {
+                            anyhow::bail!(
+                                "Host '{}' references unknown repo '{}'; define it under top-level 'repos'",
+                                host_id,
+                                name
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -153,6 +167,8 @@ impl CentralConfig {
         };
         let default_branches = self.defaults.as_ref().and_then(|d| d.branches.as_ref());
         host.repos
+            .as_deref()
+            .unwrap_or(&[])
             .iter()
             .filter_map(|ref_| {
                 let name = ref_.name();
@@ -195,7 +211,13 @@ impl CentralConfig {
     pub fn repos_referenced_by_hosts(&self) -> HashSet<String> {
         self.hosts
             .values()
-            .flat_map(|h| h.repos.iter().map(|r| r.name().to_string()))
+            .flat_map(|h| {
+                h.repos
+                    .as_deref()
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|r| r.name().to_string())
+            })
             .collect()
     }
 }
@@ -248,7 +270,7 @@ hosts:
         let host = config.hosts.get("app-server").unwrap();
         assert_eq!(host.ssh_target, "deploy@app-server.example.com");
         assert_eq!(
-            host.repos.iter().map(|r| r.name()).collect::<Vec<_>>(),
+            host.repos.as_ref().unwrap().iter().map(|r| r.name()).collect::<Vec<_>>(),
             vec!["webapp"]
         );
         let repos = config.repos_for_host("app-server");
@@ -282,7 +304,7 @@ hosts: {}
     }
 
     #[test]
-    fn empty_repos_list_valid() {
+    fn empty_repos_list_valid_and_not_wildcard() {
         let yaml = r#"
 repos: {}
 hosts:
@@ -291,7 +313,25 @@ hosts:
     repos: []
 "#;
         let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
+        let host = config.hosts.get("empty-host").unwrap();
+        assert!(!host.is_wildcard());
+        assert!(host.repos.as_ref().unwrap().is_empty());
         assert!(config.repos_for_host("empty-host").is_empty());
+    }
+
+    #[test]
+    fn omitted_repos_is_wildcard() {
+        let yaml = r#"
+repos: {}
+hosts:
+  wildcard-host:
+    ssh_target: user@host
+"#;
+        let config: CentralConfig = serde_yaml::from_str(yaml).unwrap();
+        let host = config.hosts.get("wildcard-host").unwrap();
+        assert!(host.is_wildcard());
+        assert!(host.repos.is_none());
+        assert!(config.repos_for_host("wildcard-host").is_empty());
     }
 
     #[test]

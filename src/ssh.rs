@@ -175,7 +175,7 @@ mod tests {
             github_ssh_key: None,
             ssh_forward_agent: None,
             dir_base: None,
-            repos: Vec::<HostRepoRef>::new(),
+            repos: Some(Vec::<HostRepoRef>::new()),
             release_count: None,
             release_tag_pattern: None,
             release_tag_exclude_pattern: None,
