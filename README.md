@@ -84,10 +84,10 @@ If `--webhook-port` is set without a secret, a warning is printed and webhook li
 
 Send `SIGUSR1` to the running `watch` process to trigger an immediate all-host refresh (same behavior as a webhook push event — skips polling, refreshes every host unconditionally).
 
-The PID is logged at startup. On bare metal:
+The PID is written to `/tmp/git-supervisor.pid` at startup and removed on exit. On bare metal:
 
 ```bash
-kill -SIGUSR1 <pid>
+kill -SIGUSR1 $(cat /tmp/git-supervisor.pid)
 ```
 
 In Docker:

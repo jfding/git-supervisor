@@ -1,6 +1,7 @@
 use anyhow::Context;
 use std::collections::{HashMap, HashSet};
 use std::io::IsTerminal;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::signal::unix::{signal, SignalKind};
 
@@ -26,6 +27,28 @@ pub struct WatchOpts {
 
 /// Embedded check-push.sh script, run on remote with sandbox env.
 pub const CHECK_PUSH_SCRIPT: &str = include_str!("../core/check-push.sh");
+
+const PID_FILE: &str = "/tmp/git-supervisor.pid";
+
+/// RAII guard: writes PID on creation, removes the file on drop.
+struct PidFile(PathBuf);
+
+impl PidFile {
+    fn create() -> Self {
+        let path = PathBuf::from(PID_FILE);
+        let pid = std::process::id();
+        if let Err(e) = std::fs::write(&path, pid.to_string()) {
+            console::log_warning(format!("failed to write pid file {}: {}", path.display(), e));
+        }
+        Self(path)
+    }
+}
+
+impl Drop for PidFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
 
 fn escape_single_quoted(s: &str) -> String {
     s.replace('\'', "'\\''")
@@ -456,9 +479,11 @@ pub async fn run_watch(
     let mut sigusr1 = signal(SignalKind::user_defined1())
         .context("failed to register SIGUSR1 handler")?;
 
+    let _pid_guard = PidFile::create();
     console::log_info(format!(
-        "watch: pid {} (send SIGUSR1 to trigger refresh)",
-        std::process::id()
+        "watch: pid {} written to {} (send SIGUSR1 to trigger refresh)",
+        std::process::id(),
+        PID_FILE,
     ));
 
     loop {
