@@ -45,10 +45,13 @@ fi
 echo "Running check-push.sh test..."
 echo ""
 
-# Run the test
+# Run the first-pass test (initial state assertions)
 "$TESTING_SCRIPTS_DIR/test-check-push.sh"
 
+# Run multi-run tests (push new commits/tags, delete branches, re-run, assert changes)
+"$TESTING_SCRIPTS_DIR/test-multi-run.sh"
+
 echo ""
-echo "=== Test completed ==="
+echo "=== All tests completed ==="
 echo "Check the tests/work.test/copies directory for results."
 echo "Use './scripts/cleanup-test.sh' to clean up when done."

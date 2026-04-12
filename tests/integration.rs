@@ -31,4 +31,7 @@ fn check_push_integration() {
 
     let status = run_script(&scripts.join("test-check-push.sh"));
     assert!(status.success(), "test-check-push.sh failed");
+
+    let status = run_script(&scripts.join("test-multi-run.sh"));
+    assert!(status.success(), "test-multi-run.sh failed");
 }
