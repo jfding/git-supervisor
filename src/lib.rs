@@ -421,10 +421,8 @@ fn run_cycle(
         }
     });
 
-    if any_host_ran {
-        if !skipped_hosts.is_empty() {
-            console::log_info(format!("watch: skip {{{}}} (no remote repo changes)", skipped_hosts.join(", ")));
-        }
+    if any_host_ran && !skipped_hosts.is_empty() {
+        console::log_info(format!("watch: skip {{{}}} (no remote repo changes)", skipped_hosts.join(", ")));
     }
 }
 
