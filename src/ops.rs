@@ -44,6 +44,12 @@ fn check_tool_available(host: &Host, tool: &str) -> Result<()> {
     }
 }
 
+fn check_tool_runnable(host: &Host, tool: &str, command: &str) -> Result<()> {
+    let cmd = format!("{} {} > /dev/null 2>&1", tool, command);
+    ssh::ssh_run(host, &cmd)
+        .with_context(|| format!("{} {} failed in remote host", tool, command))
+}
+
 /// Check that `git` is available on the host.
 pub fn check_git_available(host: &Host) -> Result<()> {
     check_tool_available(host, "git")
@@ -51,7 +57,8 @@ pub fn check_git_available(host: &Host) -> Result<()> {
 
 /// Check that `docker` is available on the host.
 pub fn check_docker_available(host: &Host) -> Result<()> {
-    check_tool_available(host, "docker")
+    check_tool_available(host, "docker")?;
+    check_tool_runnable(host, "docker", "ps")
 }
 
 /// Create dir_repos and dir_copies on the remote host.

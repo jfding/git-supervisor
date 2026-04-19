@@ -742,6 +742,9 @@ function check_required_commands {
   # check for optional 'docker' support
   command -v docker >/dev/null || warn "docker cli not found, will skip docker restart handling"
 
+  # confirm docker is runnable with enough permissions
+  docker ps >/dev/null || warn "docker not runnable with enough permissions, will skip docker restart handling"
+
   # check for optional 'rsync' support
   command -v rsync >/dev/null || warn "rsync not found, will use plain file copies"
 }
