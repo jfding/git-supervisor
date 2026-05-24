@@ -2,6 +2,7 @@
 # Emits one TSV line per branch/release/latest/stale/unknown finding under $DIR_COPIES.
 # Inputs (env): DIR_BASE, HOST_ID.
 # Schema: <host>\t<kind>\t<repo>\t<name>\t<sha>\t<mtime_unix>\t<flags>
+# Exit: 0 always, even with zero findings; non-zero only on unreadable $DIR_COPIES.
 set -u
 export LC_ALL=C
 
@@ -26,6 +27,7 @@ emit() {
 collect_flags() {
   local dir=$1
   local out=""
+  local f
   for f in skipping debugging no-cleanup stopping trigger; do
     if [[ -f "$dir/.$f" ]]; then
       [[ -n "$out" ]] && out="$out,"
@@ -85,9 +87,10 @@ for d in */; do
     continue
   fi
 
-  # Stale handling (preserve repo attribution).
+  # Stale handling (preserve repo attribution). Stale dirs can carry flags
+  # like .stopping/.skipping per check-push.sh:648-657, so collect them too.
   if [[ "$d" == *.to-be-removed ]]; then
-    emit "$HOST_ID" stale "$MATCHED_REPO" "$d" "-" "$(mtime_or_zero "$d")" "-"
+    emit "$HOST_ID" stale "$MATCHED_REPO" "$d" "-" "$(mtime_or_zero "$d")" "$(collect_flags "$d")"
     continue
   fi
 
