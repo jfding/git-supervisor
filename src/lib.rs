@@ -11,8 +11,10 @@ pub mod hook;
 pub mod keys;
 pub mod ops;
 pub mod ssh;
+pub mod status;
 
 pub use config::{CentralConfig, Defaults, Host, Repo};
+pub use status::{run_status, StatusOpts};
 
 /// Options for the watch event loop.
 pub struct WatchOpts {

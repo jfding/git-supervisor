@@ -42,41 +42,6 @@ fn normalize_ssh_target_host(ssh_target: &str) -> String {
     host.to_ascii_lowercase()
 }
 
-fn local_run(command: &str) -> Result<()> {
-    let status = Command::new("sh")
-        .arg("-lc")
-        .arg(command)
-        .status()
-        .context("Failed to execute local shell command")?;
-    if status.success() {
-        Ok(())
-    } else {
-        anyhow::bail!("local command exited with {}", status)
-    }
-}
-
-fn local_run_with_stdin(command: &str, stdin_data: &[u8]) -> Result<()> {
-    let mut child = Command::new("sh")
-        .arg("-lc")
-        .arg(command)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .context("Failed to execute local shell command")?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(stdin_data)
-            .context("Failed to write script to local stdin")?;
-    }
-    let status = child.wait().context("Failed to wait for local command")?;
-    if status.success() {
-        Ok(())
-    } else {
-        anyhow::bail!("local command exited with {}", status)
-    }
-}
-
 /// Resolve the effective SSH identity file for a host.
 /// `ssh_key_name` (managed key) takes precedence over `ssh_identity_file` (explicit path).
 fn resolve_identity_file(host: &Host) -> Result<Option<String>> {
@@ -94,13 +59,15 @@ pub fn is_local_ssh_target(ssh_target: &str) -> bool {
     )
 }
 
-/// Run a shell command on the remote host via SSH.
-/// `command` is the full shell snippet executed on the remote (e.g. "mkdir -p /work/git_repos").
-pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
+/// Build an unconfigured Command for `host`. For local targets returns `sh -lc`;
+/// otherwise `ssh ... <target>`. Caller appends the shell snippet to execute and
+/// configures stdio.
+fn build_ssh_command(host: &Host) -> Result<Command> {
     if is_local_ssh_target(&host.ssh_target) {
-        return local_run(command);
+        let mut cmd = Command::new("sh");
+        cmd.arg("-lc");
+        return Ok(cmd);
     }
-
     let identity = resolve_identity_file(host)?;
     let mut cmd = Command::new("ssh");
     cmd.arg("-o").arg("StrictHostKeyChecking=no");
@@ -113,8 +80,15 @@ pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
     if let Some(p) = host.ssh_port {
         cmd.arg("-p").arg(p.to_string());
     }
-    cmd.arg(&host.ssh_target).arg(command);
+    cmd.arg(&host.ssh_target);
+    Ok(cmd)
+}
 
+/// Run a shell command on the remote host via SSH.
+/// `command` is the full shell snippet executed on the remote (e.g. "mkdir -p /work/git_repos").
+pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
+    let mut cmd = build_ssh_command(host)?;
+    cmd.arg(command);
     let status = cmd.status().context("Failed to execute ssh")?;
     if status.success() {
         Ok(())
@@ -125,33 +99,16 @@ pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
 
 /// Run a remote command with stdin data (e.g. pipe a script into bash).
 pub fn ssh_run_with_stdin(host: &Host, command: &str, stdin_data: &[u8]) -> Result<()> {
-    if is_local_ssh_target(&host.ssh_target) {
-        return local_run_with_stdin(command, stdin_data);
-    }
-
-    let identity = resolve_identity_file(host)?;
-    let mut cmd = Command::new("ssh");
-    cmd.arg("-o").arg("StrictHostKeyChecking=no");
-    if host.ssh_forward_agent == Some(true) {
-        cmd.arg("-A");
-    }
-    if let Some(ref id) = identity {
-        cmd.arg("-i").arg(expand_tilde(id));
-    }
-    if let Some(p) = host.ssh_port {
-        cmd.arg("-p").arg(p.to_string());
-    }
-    cmd.arg(&host.ssh_target)
-        .arg(command)
+    let mut cmd = build_ssh_command(host)?;
+    cmd.arg(command)
         .stdin(Stdio::piped())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-
     let mut child = cmd.spawn().context("Failed to execute ssh")?;
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(stdin_data)
-            .context("Failed to write script to ssh stdin")?;
+            .context("Failed to write ssh stdin")?;
     }
     let status = child.wait().context("Failed to wait for ssh")?;
     if status.success() {
@@ -159,6 +116,36 @@ pub fn ssh_run_with_stdin(host: &Host, command: &str, stdin_data: &[u8]) -> Resu
     } else {
         anyhow::bail!("ssh exited with {}", status)
     }
+}
+
+/// Run `command` on `host` with `stdin_data` piped in; capture stdout and stderr.
+/// Returns captured stdout on success. On non-zero exit, `Err` includes the status
+/// code and trimmed stderr in its message.
+pub fn ssh_run_capture(host: &Host, command: &str, stdin_data: &[u8]) -> Result<String> {
+    let mut cmd = build_ssh_command(host)?;
+    cmd.arg(command)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().context("Failed to execute ssh")?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(stdin_data)
+            .context("Failed to write ssh stdin")?;
+    }
+    // wait_with_output drains stdout and stderr concurrently via internal threads,
+    // avoiding deadlock when remote stderr volume exceeds the pipe buffer.
+    let output = child.wait_with_output().context("Failed to wait for ssh")?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        anyhow::bail!("ssh exited with {}: {}", output.status, stderr.trim());
+    }
+    if !stderr.trim().is_empty() {
+        // Non-fatal warnings from the remote — let callers surface them.
+        crate::console::log_verbose(format!("ssh stderr: {}", stderr.trim()));
+    }
+    Ok(stdout)
 }
 
 #[cfg(test)]
@@ -206,5 +193,21 @@ mod tests {
     fn localhost_stdin_runs_without_ssh() {
         let h = host("127.0.0.1");
         assert!(ssh_run_with_stdin(&h, "cat >/dev/null", b"hello").is_ok());
+    }
+
+    #[test]
+    fn ssh_run_capture_localhost_returns_stdout() {
+        let h = host("localhost");
+        let out = ssh_run_capture(&h, "cat", b"hello\nworld\n").unwrap();
+        assert_eq!(out, "hello\nworld\n");
+    }
+
+    #[test]
+    fn ssh_run_capture_localhost_propagates_failure_with_stderr() {
+        let h = host("localhost");
+        let err = ssh_run_capture(&h, "echo boom >&2; exit 7", b"").unwrap_err();
+        let s = err.to_string();
+        assert!(s.contains("7"), "exit code in error: {}", s);
+        assert!(s.contains("boom"), "stderr in error: {}", s);
     }
 }
