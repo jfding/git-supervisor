@@ -1,5 +1,6 @@
 use crate::config::CentralConfig;
 
+/// Filter options passed to [`run_status`].
 pub struct StatusOpts {
     pub host_patterns: Vec<String>,
 }
