@@ -60,7 +60,7 @@ pub fn is_local_ssh_target(ssh_target: &str) -> bool {
 }
 
 /// Build an unconfigured Command for `host`. For local targets returns `sh -lc`;
-/// otherwise `ssh ... <target>`. Caller appends the remote command string and
+/// otherwise `ssh ... <target>`. Caller appends the shell snippet to execute and
 /// configures stdio.
 fn build_ssh_command(host: &Host) -> Result<Command> {
     if is_local_ssh_target(&host.ssh_target) {
@@ -122,7 +122,6 @@ pub fn ssh_run_with_stdin(host: &Host, command: &str, stdin_data: &[u8]) -> Resu
 /// Returns captured stdout on success. On non-zero exit, `Err` includes the status
 /// code and trimmed stderr in its message.
 pub fn ssh_run_capture(host: &Host, command: &str, stdin_data: &[u8]) -> Result<String> {
-    use std::io::Read;
     let mut cmd = build_ssh_command(host)?;
     cmd.arg(command)
         .stdin(Stdio::piped())
@@ -134,17 +133,13 @@ pub fn ssh_run_capture(host: &Host, command: &str, stdin_data: &[u8]) -> Result<
             .write_all(stdin_data)
             .context("Failed to write ssh stdin")?;
     }
-    let mut stdout = String::new();
-    let mut stderr = String::new();
-    if let Some(mut s) = child.stdout.take() {
-        s.read_to_string(&mut stdout).context("read ssh stdout")?;
-    }
-    if let Some(mut s) = child.stderr.take() {
-        s.read_to_string(&mut stderr).context("read ssh stderr")?;
-    }
-    let status = child.wait().context("Failed to wait for ssh")?;
-    if !status.success() {
-        anyhow::bail!("ssh exited with {}: {}", status, stderr.trim());
+    // wait_with_output drains stdout and stderr concurrently via internal threads,
+    // avoiding deadlock when remote stderr volume exceeds the pipe buffer.
+    let output = child.wait_with_output().context("Failed to wait for ssh")?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        anyhow::bail!("ssh exited with {}: {}", output.status, stderr.trim());
     }
     if !stderr.trim().is_empty() {
         // Non-fatal warnings from the remote — let callers surface them.
