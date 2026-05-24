@@ -1,5 +1,7 @@
 use crate::config::CentralConfig;
 
+pub const STATUS_PROBE_SCRIPT: &str = include_str!("status_probe.sh");
+
 /// Filter options passed to [`run_status`].
 pub struct StatusOpts {
     pub host_patterns: Vec<String>,
