@@ -81,6 +81,7 @@ pub fn format_relative_time(mtime: u64, now: u64) -> String {
     if mtime == 0 {
         return "-".to_string();
     }
+    // Clock skew (mtime > now) saturates to 0 and renders as "just now" — intentional.
     let delta = now.saturating_sub(mtime);
     if delta < 60 { return "just now".to_string(); }
     if delta < 3600 { return format!("{}m ago", delta / 60); }
@@ -194,7 +195,6 @@ pub fn group_reports(reports: Vec<Report>) -> GroupedReports {
 
 // ─── Host-level probe ────────────────────────────────────────────────────────
 
-#[derive(Debug)]
 enum HostOutcome {
     Ok(Vec<Report>),
     Empty,           // probe succeeded, $DIR_COPIES missing — fresh host
@@ -531,5 +531,49 @@ mod helper_tests {
         assert!(text.contains("v2.1.5"));
         assert!(text.contains("missing"));
         assert_eq!(color, AnnotationColor::Broken);
+    }
+
+    #[test]
+    fn host_filter_matches_empty_patterns_matches_all() {
+        assert!(host_filter_matches(&[], "anything"));
+        assert!(host_filter_matches(&[], ""));
+    }
+
+    #[test]
+    fn host_filter_matches_pattern_union() {
+        let pats = vec!["prod-*".to_string(), "bastion".to_string()];
+        assert!(host_filter_matches(&pats, "prod-app1"));
+        assert!(host_filter_matches(&pats, "bastion"));
+        assert!(!host_filter_matches(&pats, "staging"));
+    }
+
+    #[test]
+    fn cmp_version_tags_desc_basic() {
+        use std::cmp::Ordering;
+        assert_eq!(cmp_version_tags_desc("v2.1.5", "v2.1.4"), Ordering::Less);
+        assert_eq!(cmp_version_tags_desc("v2.1.4", "v2.1.5"), Ordering::Greater);
+        assert_eq!(cmp_version_tags_desc("v2.1.5", "v2.1.5"), Ordering::Equal);
+    }
+
+    #[test]
+    fn cmp_version_tags_desc_q_notation() {
+        use std::cmp::Ordering;
+        // v2025Q4.2.0 → [2025, 4, 2, 0]; v2025Q3.9.0 → [2025, 3, 9, 0]; Q4 > Q3
+        assert_eq!(cmp_version_tags_desc("v2025Q4.2.0", "v2025Q3.9.0"), Ordering::Less);
+    }
+
+    #[test]
+    fn cmp_version_tags_desc_missing_segments_default_zero() {
+        use std::cmp::Ordering;
+        // v2.1 → [2, 1]; v2.1.0 → [2, 1, 0]; missing trailing segment treated as 0.
+        assert_eq!(cmp_version_tags_desc("v2.1", "v2.1.0"), Ordering::Equal);
+        // v2.1 < v2.1.1 because the missing segment is 0
+        assert_eq!(cmp_version_tags_desc("v2.1", "v2.1.1"), Ordering::Greater);
+    }
+
+    #[test]
+    fn time_format_future_mtime_renders_just_now() {
+        let now = 1_000_000;
+        assert_eq!(format_relative_time(now + 100, now), "just now");
     }
 }
