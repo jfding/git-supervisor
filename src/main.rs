@@ -1,6 +1,6 @@
 use clap::Parser;
 use git_supervisor::console;
-use git_supervisor::{run_check, run_local_watch, run_watch, CentralConfig, WatchOpts, CHECK_PUSH_SCRIPT};
+use git_supervisor::{run_check, run_local_watch, run_status, run_watch, CentralConfig, StatusOpts, WatchOpts, CHECK_PUSH_SCRIPT};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -18,11 +18,20 @@ struct Cli {
 enum Command {
     /// Check config, SSH/git connectivity, and repo existence on remotes
     Check,
+    /// Show what is currently deployed on each host (read-only probe)
+    Status(StatusArgs),
     /// Prepare remotes (create dirs, ensure repos) then run check-push on each host in a loop.
     /// Optionally start a GitHub webhook server alongside the timer.
     Watch(WatchArgs),
     /// Print the embedded check-push.sh script to stdout
     PrintScript,
+}
+
+#[derive(clap::Args)]
+struct StatusArgs {
+    /// Limit to hosts whose ID matches this glob (`*`, `?`). Repeatable; union semantics.
+    #[arg(long)]
+    host: Vec<String>,
 }
 
 #[derive(clap::Args)]
@@ -105,6 +114,18 @@ fn main() {
             });
             let config = load_config_or_exit(&path);
             run_check(&config)
+        }
+        Command::Status(args) => {
+            let path = config_path.unwrap_or_else(|| {
+                console::log_error(
+                    "no config file found; use --config or create ~/.config/git-supervisor/deployments.yaml"
+                );
+                std::process::exit(1);
+            });
+            let config = load_config_or_exit(&path);
+            run_status(&config, StatusOpts {
+                host_patterns: args.host.clone(),
+            })
         }
         Command::Watch(args) => {
             warn_webhook_args(args);
@@ -207,5 +228,27 @@ mod tests {
     fn cli_gh_webhook_subcommand_removed() {
         let result = Cli::try_parse_from(["supervisor", "gh-webhook", "--secret", "s"]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn cli_status_parses_no_args() {
+        let cli = Cli::try_parse_from(["supervisor", "status"]).unwrap();
+        match cli.command {
+            Command::Status(args) => assert!(args.host.is_empty()),
+            _ => panic!("expected Status"),
+        }
+    }
+
+    #[test]
+    fn cli_status_parses_multiple_host_filters() {
+        let cli = Cli::try_parse_from([
+            "supervisor", "status", "--host", "prod-*", "--host", "bastion",
+        ]).unwrap();
+        match cli.command {
+            Command::Status(args) => {
+                assert_eq!(args.host, vec!["prod-*".to_string(), "bastion".to_string()]);
+            }
+            _ => panic!("expected Status"),
+        }
     }
 }
