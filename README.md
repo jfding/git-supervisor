@@ -56,6 +56,9 @@ hosts:
 # Check config, SSH/git connectivity, and repo existence on remotes
 git-supervisor check [--config deployments.yaml]
 
+# Show what is currently deployed across all hosts (read-only probe)
+git-supervisor status [--config deployments.yaml] [--host PATTERN]...
+
 # Prepare remotes (create dirs, ensure repos) then run check-push on each host in a loop
 git-supervisor watch [--config deployments.yaml] [--interval SECS] [--timeout SECS] [-I | --ignore-missing]
                      [--webhook-secret SECRET] [--webhook-port PORT]
@@ -63,6 +66,25 @@ git-supervisor watch [--config deployments.yaml] [--interval SECS] [--timeout SE
 
 - Config is an optional argument to each subcommand; default: `deployments.yaml`.
 - **check**: load and validate the config, then for each host verify SSH/git is available and that each configured repo directory exists under `dir_repos` with a `.git` directory.
+- **status**: SSH each host in parallel and print a grouped view per host/repo of every deployed branch, release, and stale dir, with deployed SHA (7-char), last `.living` heartbeat (relative time), and any user dot-flag files (`.skipping`, `.debugging`, `.no-cleanup`, `.stopping`, `.trigger`). The `prod.latest` symlink target appears as a green annotation in the repo header — yellow `(latest: unset)` if releases exist but no symlink, red `(latest: X [missing])` if it points to a non-existent dir. `--host` accepts a shell glob (`prod-*`, `app?`) and may be repeated (union semantics); zero matches exits non-zero. Read-only — no fetch, no clone, no docker restart.
+
+  Example output:
+
+  ```
+  host: app1
+    webapp  (latest: v2.1.5)
+      dev          def4567  3d ago      debugging
+      main         abc1234  2m ago      -
+      --
+      v2.1.5       fed6543  1h ago      -
+      v2.1.4       cba9876  2026-04-12  -
+      stale:
+        webapp.oldfeature.to-be-removed   3d ago
+
+  host: app3  ERROR
+    ssh: connect to host app3.example.com port 22: Connection timed out
+  ```
+
 - **watch**: first prepares each remote (create dirs, init empty repos by cloning when missing unless `-I`/`--ignore-missing`). Then, on the supervisor machine, it polls upstream refs for all configured repos. It only runs remote `check-push` on hosts whose configured repos have upstream changes (first round always runs on all hosts). `--interval` (default 120) controls polling cadence, optional `--timeout` stops after SECS, `-I`/`--ignore-missing` skips cloning (only create dirs; missing repos are ignored). Run until Ctrl+C if no timeout.
 - Remotes must have **SSH** access (key-based) and **git** installed. For local hosts (`localhost`, `127.0.0.1`, `::1`, including forms like `user@localhost`), supervisor runs commands directly on the local machine and does not require an SSH daemon.
 
