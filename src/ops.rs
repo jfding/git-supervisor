@@ -47,7 +47,7 @@ fn check_tool_available(host: &Host, tool: &str) -> Result<()> {
 fn check_tool_runnable(host: &Host, tool: &str, command: &str) -> Result<()> {
     let cmd = format!("{} {} > /dev/null 2>&1", tool, command);
     ssh::ssh_run(host, &cmd)
-        .with_context(|| format!("{} {} failed in remote host", tool, command))
+        .with_context(|| format!("{} failed to run on remote host", tool))
 }
 
 /// Check that `git` is available on the host.
