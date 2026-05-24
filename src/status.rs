@@ -5,6 +5,7 @@ pub struct StatusOpts {
     pub host_patterns: Vec<String>,
 }
 
+/// One row of the probe's TSV output: branch, release, latest-symlink, stale, or unknown dir.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ReportKind {
     Branch,
@@ -14,6 +15,7 @@ pub enum ReportKind {
     Unknown,
 }
 
+/// Parsed finding from the remote probe. One per directory under `$DIR_COPIES`.
 #[derive(Debug, Clone)]
 pub struct Report {
     pub host: String,
@@ -28,6 +30,8 @@ pub struct Report {
 impl Report {
     pub fn parse_line(line: &str) -> Option<Self> {
         let cols: Vec<&str> = line.split('\t').collect();
+        // Strict 7-column contract — extra cols indicate an upstream bug (e.g. tab in a
+        // flag value). Drop the row rather than silently misinterpret it.
         if cols.len() != 7 {
             return None;
         }
