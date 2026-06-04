@@ -7,7 +7,6 @@ fn write_layout(base: &std::path::Path, repo: &str, branch: &str, sha: &str) {
     fs::create_dir_all(&copies).unwrap();
     fs::create_dir_all(&repos).unwrap();
     fs::write(copies.join(".git-rev"), sha).unwrap();
-    fs::File::create(copies.join(".living")).unwrap();
 }
 
 fn write_config(path: &std::path::Path, dir_base: &str) {
@@ -36,6 +35,17 @@ fn status_renders_branch_against_localhost() {
     assert!(stdout.contains("main"), "stdout: {stdout}");
     assert!(stdout.contains("abcdef1"), "expected 7-char SHA truncation; stdout: {stdout}");
     assert!(!stdout.contains("abcdef12"), "SHA should be 7 chars exactly; stdout: {stdout}");
+    // Regression: the branch row must render a real mtime, not "-".
+    // .git-rev was just written, so the relative time should be "just now".
+    let branch_row = stdout.lines().find(|l| l.trim().starts_with("main ")).expect("main row");
+    assert!(
+        !branch_row.contains(" -  "),
+        "branch row missing mtime (showing '-'); got: {branch_row:?}"
+    );
+    assert!(
+        branch_row.contains("just now"),
+        "expected 'just now' mtime on freshly-written .git-rev; got: {branch_row:?}"
+    );
 }
 
 #[test]

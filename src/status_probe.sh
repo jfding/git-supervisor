@@ -96,7 +96,7 @@ for d in */; do
 
   sha=$(cat "$d/.git-rev" 2>/dev/null | tr -d '\r\n\t' || true)
   [[ -z "$sha" ]] && sha="-"
-  mtime=$(mtime_or_zero "$d/.living")
+  mtime=$(mtime_or_zero "$d/.git-rev")
   flags=$(collect_flags "$d")
 
   case "$MATCHED_REST" in
