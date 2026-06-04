@@ -1,5 +1,15 @@
 use std::fs;
+use std::os::unix::fs::symlink;
 use std::process::Command;
+
+fn write_release_with_latest(base: &std::path::Path, repo: &str, tag: &str, sha: &str) {
+    let release_dir = base.join("copies").join(format!("{repo}.prod.{tag}"));
+    fs::create_dir_all(&release_dir).unwrap();
+    fs::create_dir_all(base.join("git_repos").join(repo)).unwrap();
+    fs::write(release_dir.join(".git-rev"), sha).unwrap();
+    let latest = base.join("copies").join(format!("{repo}.prod.latest"));
+    symlink(format!("{repo}.prod.{tag}"), &latest).unwrap();
+}
 
 fn write_layout(base: &std::path::Path, repo: &str, branch: &str, sha: &str) {
     let copies = base.join("copies").join(format!("{repo}.{branch}"));
@@ -67,6 +77,33 @@ fn status_handles_dotted_repo_name() {
     assert!(stdout.contains("my.api"), "expected repo 'my.api' in output: {stdout}");
     // "main" should appear on its own line as a branch under my.api, not glued to api.
     assert!(stdout.lines().any(|l| l.trim().starts_with("main ")), "expected 'main' branch row; got: {stdout}");
+}
+
+#[test]
+fn status_latest_symlink_matches_release_row() {
+    // Regression: the probe used to emit the latest's full symlink target
+    // ("demo.prod.v1.0.0"), but release rows use just the tag ("v1.0.0").
+    // The comparison in repo_header_annotation always failed → "[missing]".
+    let tmp = tempfile::tempdir().unwrap();
+    write_release_with_latest(tmp.path(), "demo", "v1.0.0", "abc1234567");
+    let cfg = tmp.path().join("config.yaml");
+    write_config(&cfg, tmp.path().to_str().unwrap());
+
+    let out = Command::new(env!("CARGO_BIN_EXE_git-supervisor"))
+        .args(["--config", cfg.to_str().unwrap(), "status"])
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        stdout.contains("(latest: v1.0.0)"),
+        "expected '(latest: v1.0.0)' header annotation; got: {stdout}"
+    );
+    assert!(
+        !stdout.contains("[missing]"),
+        "latest symlink points to a real release, should not be flagged missing; got: {stdout}"
+    );
 }
 
 #[test]

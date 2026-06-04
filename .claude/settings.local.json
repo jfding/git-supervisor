@@ -16,7 +16,11 @@
       "Bash(cargo check:*)",
       "Bash(~/.cargo/bin/cargo check:*)",
       "Skill(commit-commands:commit)",
-      "Skill(commit-commands:commit-push-pr)"
+      "Skill(commit-commands:commit-push-pr)",
+      "Bash(rtk ls *)",
+      "Bash(rtk find *)",
+      "Bash(rtk proxy *)",
+      "Bash(rtk cargo *)"
     ]
   }
 }

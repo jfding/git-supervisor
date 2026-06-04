@@ -107,6 +107,12 @@ for d in */; do
     prod.latest)
       target=$(readlink "$d" 2>/dev/null || echo "-")
       [[ -z "$target" ]] && target="-"
+      # check-push.sh sets the symlink to "<repo>.prod.<tag>" (its basename).
+      # Strip that prefix so the emitted name is just "<tag>" — matching the
+      # name format used for release rows, so the consumer can compare them.
+      if [[ "$target" != "-" ]]; then
+        target=${target#"$MATCHED_REPO".prod.}
+      fi
       emit "$HOST_ID" latest "$MATCHED_REPO" "$target" "$sha" "$mtime" "$flags"
       ;;
     prod.*)
