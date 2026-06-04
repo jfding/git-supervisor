@@ -436,6 +436,10 @@ function checkout_and_copy_tag {
   # if path exists, skip but consider successful
   [[ -d "$_cp_path" ]] && return
 
+  # get origin ref for tag, if available
+  local _origin_ref
+  _origin_ref=$(git rev-parse "$_tag" 2>/dev/null)
+
   # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
   highlight "..copying files for new RELEASE [ $_tag ]"
   mkdir -p "$_cp_path" &&
@@ -443,7 +447,10 @@ function checkout_and_copy_tag {
       _safe_rm_rf_copies "${_cp_path}" || true
       err "failed to copy files for new RELEASE [ $_tag ]"
       return 1
-    }
+  }
+
+  # save rev-id to .git-rev as well
+  echo "$_origin_ref" > "$_cp_path/.git-rev"
 }
 
 # expect repo, branch, and optional per-repo branch list (default BR_WHITELIST)
