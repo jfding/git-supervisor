@@ -126,6 +126,8 @@ fn collect_host(host_id: &str, host: &Host, dir_base: &Path, apply: bool) -> Hos
         Ok(out) => {
             let reports: Vec<CleanupReport> =
                 out.lines().filter_map(CleanupReport::parse_line).collect();
+            // cleanup_probe.sh emits nothing on stdout when there are no stale dirs
+            // (diagnostics go to stderr), so a zero row-count alone means "nothing to clean".
             if reports.is_empty() {
                 HostOutcome::Empty
             } else {
