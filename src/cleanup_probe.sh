@@ -60,6 +60,32 @@ match_repo() {
   echo "-"; return 0
 }
 
+# rm -rf only when $1 resolves strictly under $DIR_COPIES (real path). Refuses
+# the copies root itself and anything outside the tree. Ported from
+# check-push.sh:_safe_rm_rf_copies. On failure: echo a one-line reason, return 1.
+safe_rm_rf_copies() {
+  local _target=$1 _base _resolved _err
+  [[ -n "$_target" ]] || { echo "empty target"; return 1; }
+  _base=$(cd "$DIR_COPIES" && pwd -P) || { echo "cannot resolve DIR_COPIES"; return 1; }
+  # Resolve the target's own real path. A symlink resolves to its destination,
+  # so a link pointing outside the tree is correctly refused below.
+  if [[ -e "$_target" || -L "$_target" ]]; then
+    _resolved=$(cd "$_target" 2>/dev/null && pwd -P) || { echo "cannot resolve target"; return 1; }
+  else
+    echo "target missing"; return 1
+  fi
+  [[ "$_resolved" == "$_base" ]] && { echo "refusing copies root"; return 1; }
+  case "${_resolved}/" in
+    "${_base}/"*) ;;
+    *) echo "outside copies tree"; return 1 ;;
+  esac
+  _err=$(rm -rf -- "$_target" 2>&1) || { echo "${_err:-rm failed}"; return 1; }
+  return 0
+}
+
+# Collapse tabs/CR/newlines in a reason string to spaces so it stays one TSV field.
+sanitize() { printf '%s' "$1" | tr '\t\r\n' '   '; }
+
 cd "$DIR_COPIES" || { echo "cleanup: cd $DIR_COPIES failed" >&2; exit 1; }
 
 rc=0
@@ -69,8 +95,16 @@ for d in *.to-be-removed/; do
   [[ -d "$d" ]] || continue
   repo=$(match_repo "$d")
   mtime=$(mtime_or_zero "$d")
-  # Dry-run only for now; APPLY handling added in Task 2.
-  emit "$HOST_ID" "$repo" "$d" "$mtime" would-remove "-"
+  if [[ "$APPLY" == "1" ]]; then
+    if reason=$(safe_rm_rf_copies "$d"); then
+      emit "$HOST_ID" "$repo" "$d" "$mtime" removed "-"
+    else
+      emit "$HOST_ID" "$repo" "$d" "$mtime" failed "$(sanitize "$reason")"
+      rc=1
+    fi
+  else
+    emit "$HOST_ID" "$repo" "$d" "$mtime" would-remove "-"
+  fi
 done
 
 exit $rc
