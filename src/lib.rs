@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::signal::unix::{signal, SignalKind};
 
+pub mod cleanup;
 pub mod config;
 pub mod console;
 pub mod hook;
