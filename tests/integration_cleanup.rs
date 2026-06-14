@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::symlink;
 use std::process::Command;
 
 fn write_config(path: &std::path::Path, dir_base: &str) {
@@ -89,4 +90,32 @@ fn cleanup_empty_host_reports_nothing_to_clean() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains("(nothing to clean)"), "stdout: {stdout}");
+}
+
+#[test]
+fn cleanup_apply_refuses_out_of_tree_symlink_and_exits_nonzero() {
+    // A `*.to-be-removed` entry that is a symlink pointing OUTSIDE the copies tree
+    // must be refused by the safe-rm guard: the outside target survives, the row is
+    // reported as failed, and the process exits non-zero. This exercises the full
+    // destructive failure path through the real binary.
+    let tmp = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let precious = outside.path().join("precious");
+    fs::create_dir_all(&precious).unwrap();
+
+    fs::create_dir_all(tmp.path().join("git_repos/webapp")).unwrap();
+    fs::create_dir_all(tmp.path().join("git_repos/api")).unwrap();
+    fs::create_dir_all(tmp.path().join("copies")).unwrap();
+    // Symlinked stale entry escaping the copies tree.
+    symlink(&precious, tmp.path().join("copies/webapp.evil.to-be-removed")).unwrap();
+
+    let cfg = tmp.path().join("config.yaml");
+    write_config(&cfg, tmp.path().to_str().unwrap());
+
+    let out = run(&cfg, &["--apply"]);
+    assert!(!out.status.success(), "expected non-zero exit when a deletion is refused");
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("failed"), "expected a failed outcome row; stdout: {stdout}");
+    // The out-of-tree target must be untouched.
+    assert!(precious.is_dir(), "out-of-tree target must survive the refusal");
 }
