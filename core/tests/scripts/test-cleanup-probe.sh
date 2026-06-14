@@ -49,6 +49,7 @@ check    "apply exit code 0 on full success" "$ap_rc" "0"
 
 # ---- safe-rm refusal: a symlink pointing outside DIR_COPIES must not be followed/deleted ----
 OUTSIDE=$(mktemp -d)
+trap 'rm -rf "$TMP" "$OUTSIDE"' EXIT
 mkdir -p "$OUTSIDE/precious"
 ln -s "$OUTSIDE/precious" "$TMP/copies/evil.to-be-removed"
 out=$(DIR_BASE="$TMP" HOST_ID="h1" APPLY=1 bash "$PROBE")

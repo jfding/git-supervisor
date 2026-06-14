@@ -66,12 +66,16 @@ match_repo() {
 safe_rm_rf_copies() {
   local _target=$1 _base _resolved _err
   [[ -n "$_target" ]] || { echo "empty target"; return 1; }
+  [[ -n "${DIR_COPIES:-}" ]] || { echo "DIR_COPIES unset, refusing rm -rf"; return 1; }
   _base=$(cd "$DIR_COPIES" && pwd -P) || { echo "cannot resolve DIR_COPIES"; return 1; }
   # Resolve the target's own real path. A symlink resolves to its destination,
   # so a link pointing outside the tree is correctly refused below.
   if [[ -e "$_target" || -L "$_target" ]]; then
     _resolved=$(cd "$_target" 2>/dev/null && pwd -P) || { echo "cannot resolve target"; return 1; }
   else
+    # Deliberate divergence from check-push.sh: the reap loop only passes dirs that
+    # just matched the glob and passed `[[ -d ]]`, so a missing target signals a
+    # TOCTOU race — refusing to delete is the safe choice here.
     echo "target missing"; return 1
   fi
   [[ "$_resolved" == "$_base" ]] && { echo "refusing copies root"; return 1; }
