@@ -1,6 +1,6 @@
 use clap::Parser;
 use git_supervisor::console;
-use git_supervisor::{run_check, run_local_watch, run_status, run_watch, CentralConfig, StatusOpts, WatchOpts, CHECK_PUSH_SCRIPT};
+use git_supervisor::{run_check, run_cleanup, run_local_watch, run_status, run_watch, CentralConfig, CleanupOpts, StatusOpts, WatchOpts, CHECK_PUSH_SCRIPT};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -20,6 +20,8 @@ enum Command {
     Check,
     /// Show what is currently deployed on each host (read-only probe)
     Status(StatusArgs),
+    /// Remove stale `*.to-be-removed` copies on each host. Dry-run by default; use --apply to delete.
+    Cleanup(CleanupArgs),
     /// Prepare remotes (create dirs, ensure repos) then run check-push on each host in a loop.
     /// Optionally start a GitHub webhook server alongside the timer.
     Watch(WatchArgs),
@@ -32,6 +34,16 @@ struct StatusArgs {
     /// Limit to hosts whose ID matches this glob (`*`, `?`). Repeatable; union semantics.
     #[arg(long)]
     host: Vec<String>,
+}
+
+#[derive(clap::Args)]
+struct CleanupArgs {
+    /// Limit to hosts whose ID matches this glob (`*`, `?`). Repeatable; union semantics.
+    #[arg(long)]
+    host: Vec<String>,
+    /// Actually delete the stale copies. Without this flag, only list what would be removed.
+    #[arg(long)]
+    apply: bool,
 }
 
 #[derive(clap::Args)]
@@ -125,6 +137,19 @@ fn main() {
             let config = load_config_or_exit(&path);
             run_status(&config, StatusOpts {
                 host_patterns: args.host.clone(),
+            })
+        }
+        Command::Cleanup(args) => {
+            let path = config_path.unwrap_or_else(|| {
+                console::log_error(
+                    "no config file found; use --config or create ~/.config/git-supervisor/deployments.yaml"
+                );
+                std::process::exit(1);
+            });
+            let config = load_config_or_exit(&path);
+            run_cleanup(&config, CleanupOpts {
+                host_patterns: args.host.clone(),
+                apply: args.apply,
             })
         }
         Command::Watch(args) => {
@@ -249,6 +274,33 @@ mod tests {
                 assert_eq!(args.host, vec!["prod-*".to_string(), "bastion".to_string()]);
             }
             _ => panic!("expected Status"),
+        }
+    }
+
+    #[test]
+    fn cli_cleanup_parses_defaults() {
+        let cli = Cli::try_parse_from(["supervisor", "cleanup"]).unwrap();
+        match cli.command {
+            Command::Cleanup(args) => {
+                assert!(args.host.is_empty());
+                assert!(!args.apply, "apply must default to false (dry-run)");
+            }
+            _ => panic!("expected Cleanup"),
+        }
+    }
+
+    #[test]
+    fn cli_cleanup_parses_apply_and_hosts() {
+        let cli = Cli::try_parse_from([
+            "supervisor", "cleanup", "--host", "prod-*", "--host", "bastion", "--apply",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Cleanup(args) => {
+                assert_eq!(args.host, vec!["prod-*".to_string(), "bastion".to_string()]);
+                assert!(args.apply);
+            }
+            _ => panic!("expected Cleanup"),
         }
     }
 }
