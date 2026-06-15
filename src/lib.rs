@@ -13,6 +13,7 @@ pub mod keys;
 pub mod ops;
 pub mod ssh;
 pub mod status;
+pub mod version_check;
 
 pub use config::{CentralConfig, Defaults, Host, Repo};
 pub use status::{run_status, StatusOpts};

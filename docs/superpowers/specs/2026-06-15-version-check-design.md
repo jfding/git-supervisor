@@ -13,31 +13,41 @@ modifies the running binary.
 - **Scope:** detect + notify only. No self-update / download.
 - **Triggers:** an explicit subcommand *and* a cached background check during
   `watch`.
-- **HTTP client:** `ureq` (blocking, rustls). Fits the mostly-synchronous CLI
-  and keeps the dependency tree lean.
-- **Detection method:** GitHub Releases API `GET /releases/latest`, parsed with
-  `serde_json` (already a dependency). The `latest` endpoint already excludes
-  pre-releases and drafts.
+- **Detection method:** `git ls-remote --tags --refs https://github.com/jfding/git-supervisor.git`,
+  using the system `git` binary that git-supervisor already requires at runtime.
+  This adds **no new Rust dependency, no C compiler, and no TLS stack** to the
+  statically-linked musl binary (git handles HTTPS). We filter the tags to
+  stable releases ourselves and pick the highest by semver.
+
+  > **Why not the GitHub Releases API + an HTTP client?** The original plan was
+  > `ureq` + the `/releases/latest` API. `ureq`'s rustls backend pulls in `ring`,
+  > which compiles C/assembly and needs a musl C compiler — a new build
+  > dependency for a project whose build is otherwise pure Rust, and binary
+  > bloat. Since `git` is already a hard runtime dependency and the project
+  > already has a release-tag convention (`release_tag_pattern`), `git ls-remote`
+  > is the cleaner fit. Trade-off: no release-notes URL (we synthesize the
+  > releases page URL) and we must filter pre-releases ourselves.
 
 ## New module: `src/version_check.rs`
 
 Single-purpose module, exported from `lib.rs`. Public surface:
 
-- `ReleaseInfo { tag: String, html_url: String }` — parsed result.
-- `parse_release(json: &str) -> Result<ReleaseInfo>` — **pure.** Extracts
-  `tag_name` and `html_url` from the API JSON. Errors on malformed JSON or
-  missing fields.
+- `parse_ls_remote_tags(output: &str) -> Vec<String>` — **pure.** Parses
+  `git ls-remote` output (`<sha>\trefs/tags/<name>` lines) into a de-duplicated
+  list of tag names, stripping the `refs/tags/` prefix and any `^{}` peel
+  suffix.
+- `latest_stable_tag(tags: &[String]) -> Option<String>` — **pure.** Keeps only
+  stable release tags (optional `v`, then dot-separated all-numeric components,
+  e.g. `v2.1.8`; rejects `v2.2.0-rc1`) and returns the highest by semver.
 - `compare_versions(current: &str, latest_tag: &str) -> std::cmp::Ordering` —
   **pure.** Strips a leading `v` from each, parses `major.minor.patch` into a
-  numeric tuple, and compares. No semver crate: `/releases/latest` excludes
-  pre-releases, so plain `x.y.z` ordering is sufficient. Malformed components
+  numeric tuple, and compares. No semver crate needed. Malformed components
   parse as `0`.
-- `fetch_latest_release() -> Result<ReleaseInfo>` — the only networked
-  function. `ureq` GET to
-  `https://api.github.com/repos/jfding/git-supervisor/releases/latest` with:
-  - `User-Agent: git-supervisor/<version>` (GitHub returns 403 without it)
-  - `Accept: application/vnd.github+json`
-  - ~5s timeout so it can never hang the caller.
+- `fetch_latest_tag() -> Result<String>` — the only function with side effects.
+  Runs `git ls-remote --tags --refs https://github.com/jfding/git-supervisor.git`
+  (matching `ops::remote_refs_fingerprint`'s invocation style), with
+  `GIT_TERMINAL_PROMPT=0` so a credential prompt can never hang it. Parses the
+  output and returns the latest stable tag.
 - `run_version_check(current: &str) -> Result<()>` — for the explicit
   subcommand. Always fetches fresh, refreshes the cache, prints the full
   result.
@@ -45,6 +55,8 @@ Single-purpose module, exported from `lib.rs`. Public surface:
   swallows all errors, prints at most one styled line.
 
 The repository slug is a module constant: `GITHUB_REPO = "jfding/git-supervisor"`.
+The release page URL (`https://github.com/<repo>/releases`) is synthesized for
+the notice, since `git ls-remote` does not provide one.
 
 ## Caching
 
@@ -85,16 +97,19 @@ network/parse/cache errors. The explicit subcommand surfaces them to the user.
 
 ## Dependencies
 
-Add `ureq` (v2, rustls TLS). This is the only new dependency. `serde_json` and
-`dirs` are already present.
+**None.** No new Rust dependency. Detection uses the system `git` binary via
+`std::process::Command`. `serde`/`serde_json` (cache) and `dirs` (cache path)
+are already present.
 
 ## Testing
 
-Unit tests (no real network):
+Unit tests (no real network, no git invocation):
 
 - `compare_versions`: behind / equal / ahead / `v`-prefixed / malformed input.
-- `parse_release`: a sample API JSON string → `ReleaseInfo`; malformed JSON →
-  error.
+- `parse_ls_remote_tags`: sample `ls-remote` output → tag list; `^{}` peel
+  suffix stripped; duplicates removed.
+- `latest_stable_tag`: a mix of stable + pre-release + junk tags → the highest
+  stable tag; empty/no-stable → `None`.
 - `cache_is_stale`: fresh vs expired, with an injected `now`.
 
 Integration / wiring:
@@ -102,5 +117,5 @@ Integration / wiring:
 - A clap parse test for the new `version` subcommand, matching the existing
   `main.rs` test style.
 
-The networked `fetch_latest_release` is kept thin; the tested logic lives in the
-pure functions it calls.
+The side-effecting `fetch_latest_tag` is kept thin; the tested logic lives in
+the pure functions it calls.
