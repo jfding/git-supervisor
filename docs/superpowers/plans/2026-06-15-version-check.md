@@ -10,6 +10,17 @@
 
 **Design doc:** `docs/superpowers/specs/2026-06-15-version-check-design.md`
 
+> **Execution note (2026-06-15):** During implementation, `ureq`+rustls was
+> found to break the static-musl build (its `ring` dependency needs a musl C
+> compiler, a new build requirement for this otherwise pure-Rust project).
+> Detection was switched to `git ls-remote --tags --refs` via the system `git`
+> binary (already required) — **no new dependency, no C compiler**. Tasks 1, 4,
+> and 5 below describe the original `ureq`/Releases-API approach; the shipped
+> code instead uses `parse_ls_remote_tags` / `latest_stable_tag` / `fetch_latest_tag`.
+> See the updated design doc and `src/version_check.rs` for what was built. The
+> caching, comparison, notify, subcommand-wiring, and watch-integration tasks
+> were implemented as written.
+
 ---
 
 ## File Structure
