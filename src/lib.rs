@@ -18,6 +18,7 @@ pub mod version_check;
 pub use config::{CentralConfig, Defaults, Host, Repo};
 pub use status::{run_status, StatusOpts};
 pub use cleanup::{run_cleanup, CleanupOpts};
+pub use version_check::{maybe_notify_update, run_version_check};
 
 /// Options for the watch event loop.
 pub struct WatchOpts {
