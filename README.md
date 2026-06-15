@@ -157,9 +157,34 @@ Inside each copy directory (`<dir_base>/copies/<repo>.<branch>/`), several dot f
 | `.no-cleanup` | user | **Overlay-only updates.** Normally an update does a full refresh (remove old files, extract fresh). With this file present, new files are extracted on top of the existing copy without deleting extra files. |
 | `.stopping` | user | **Mark for deprecation.** The script removes all content in the directory, then recreates it with `.skipping` so no further updates occur. Use this to retire a branch copy cleanly. |
 | `.git-rev` | auto | Stores the deployed commit hash. Used to detect whether upstream has new commits since the last update. |
-| `.living` | auto | Heartbeat marker written each cycle after a branch/release is processed. Copies without `.living` at cleanup time are considered stale and moved to `*.to-be-removed`. |
+| `.living` | auto | Heartbeat marker written each cycle after a branch/release is processed. Copies without `.living` at cleanup time are considered stale and moved to `*.to-be-removed` (reap these with `git-supervisor cleanup`). |
 
 All dot files inside a copy directory are **preserved across updates** (both full-refresh and overlay modes).
+
+### Cleaning up stale copies
+
+When a branch or release copy stops being deployed, `check-push` moves it aside to
+`<copy>.to-be-removed` (see the `.living` row in the dot-file table above) but never
+deletes it — these stale dirs accumulate over time. The `cleanup` subcommand reaps them
+across the controlled hosts.
+
+```bash
+# Dry-run (default): list the stale copies that WOULD be removed, delete nothing
+git-supervisor cleanup
+
+# Limit the blast radius to specific hosts (same glob semantics as `status`)
+git-supervisor cleanup --host 'prod-*'
+
+# Actually delete the stale copies
+git-supervisor cleanup --apply
+```
+
+- Targets only `*.to-be-removed` directories under `<dir_base>/copies/`. Live copies and
+  unrecognized directories are never touched.
+- Runs in parallel across hosts; deletion is guarded so it refuses anything that does not
+  resolve strictly under `<dir_base>/copies/`.
+- Exits non-zero if any host is unreachable or any deletion fails (best-effort: the other
+  hosts/dirs are still processed).
 
 
 ### Docker restart and pre/post hook jobs

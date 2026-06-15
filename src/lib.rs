@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::signal::unix::{signal, SignalKind};
 
+pub mod cleanup;
 pub mod config;
 pub mod console;
 pub mod hook;
@@ -15,6 +16,7 @@ pub mod status;
 
 pub use config::{CentralConfig, Defaults, Host, Repo};
 pub use status::{run_status, StatusOpts};
+pub use cleanup::{run_cleanup, CleanupOpts};
 
 /// Options for the watch event loop.
 pub struct WatchOpts {
@@ -604,6 +606,14 @@ pub fn run_local_watch(interval_secs: u64, timeout_secs: Option<u64>) -> Result<
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn cleanup_reexports_are_public() {
+        // Compile-time check that the re-exports exist at crate root.
+        let _opts = crate::CleanupOpts { host_patterns: vec![], apply: false };
+        let _f: fn(&CentralConfig, crate::CleanupOpts) -> Result<(), anyhow::Error> =
+            crate::run_cleanup;
+    }
 
     #[test]
     fn should_run_host_remote_first_round_always_runs() {
