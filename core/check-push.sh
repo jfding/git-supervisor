@@ -433,12 +433,19 @@ function checkout_and_copy_tag {
 
   local _cp_path="${DIR_COPIES}/${_repo}.prod.${_tag}"
 
-  # if path exists, skip but consider successful
-  [[ -d "$_cp_path" ]] && return
-
   # get origin ref for tag, if available
   local _origin_ref
   _origin_ref=$(git rev-parse "$_tag" 2>/dev/null)
+
+  # if path exists, skip the copy (tag copies are immutable) but backfill a
+  # missing .git-rev — copies created before .git-rev support never get one
+  # otherwise, since we return early here on every subsequent run
+  if [[ -d "$_cp_path" ]]; then
+    if [[ ! -f "$_cp_path/.git-rev" ]] && [[ -n "$_origin_ref" ]]; then
+      echo -n "$_origin_ref" > "$_cp_path/.git-rev"
+    fi
+    return
+  fi
 
   # extract tag tree directly to target dir (no checkout in repo, ref unchanged)
   highlight "..copying files for new RELEASE [ $_tag ]"
@@ -450,7 +457,7 @@ function checkout_and_copy_tag {
   }
 
   # save rev-id to .git-rev as well
-  echo "$_origin_ref" > "$_cp_path/.git-rev"
+  echo -n "$_origin_ref" > "$_cp_path/.git-rev"
 }
 
 # expect repo, branch, and optional per-repo branch list (default BR_WHITELIST)

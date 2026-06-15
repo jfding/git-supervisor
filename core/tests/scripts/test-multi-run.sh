@@ -152,6 +152,17 @@ LATEST_WEBAPP_AFTER=$(readlink "$DIR_BASE/copies/webapp.prod.latest" 2>/dev/null
   _fail "webapp.prod.latest points to '$LATEST_WEBAPP_AFTER', expected 'webapp.prod.v2026Q2.0.0'"
 _ok "webapp.prod.latest symlink updated to v2026Q2.0.0"
 
+# A freshly-created tag copy must carry a .git-rev matching the tag's commit
+REV_NEW_TAG=$(_read_git_rev "webapp.prod.v2026Q2.0.0")
+[[ -n "$REV_NEW_TAG" ]] || \
+  _fail "webapp.prod.v2026Q2.0.0 has no .git-rev after tag copy creation"
+_ok "webapp.prod.v2026Q2.0.0 .git-rev written on creation (${REV_NEW_TAG:0:8})"
+
+EXPECTED_TAG_REV=$( cd "$DIR_BASE/git_repos/webapp" && git rev-parse "v2026Q2.0.0" )
+[[ "$REV_NEW_TAG" == "$EXPECTED_TAG_REV" ]] || \
+  _fail "webapp.prod.v2026Q2.0.0 .git-rev='$REV_NEW_TAG' != tag rev '$EXPECTED_TAG_REV'"
+_ok "webapp.prod.v2026Q2.0.0 .git-rev matches tag commit"
+
 # TOPN=4 — the oldest release should have been pruned (v2.1 was already gone, next is v10.0)
 # After adding v2026Q2.0.0, the top 4 are: v2026Q2.0.0, v2026Q1.0.0, v2025Q12.1.0, v2025Q4.2.0
 # So v10.0 should now be marked to-be-removed (no longer in top 4)
@@ -161,6 +172,30 @@ if [[ -d "$DIR_BASE/copies/webapp.prod.v10.0.to-be-removed" ]] || \
 else
   _fail "webapp.prod.v10.0 still present after TOPN shifted to 4 newer releases"
 fi
+
+# ---------------------------------------------------------------------------
+# 2b. Pre-existing tag copy missing .git-rev — must be backfilled (self-heal)
+# ---------------------------------------------------------------------------
+# Tag copies are immutable: checkout_and_copy_tag returns early when the dir
+# already exists. Copies created before .git-rev support (or otherwise missing
+# the file) must get it backfilled on the next run, not skipped forever.
+echo ""
+echo "--- Scenario 2b: backfill .git-rev for pre-existing tag copy ---"
+
+TAG_COPY="$DIR_BASE/copies/webapp.prod.v2026Q2.0.0"
+rm -f "$TAG_COPY/.git-rev"
+[[ ! -f "$TAG_COPY/.git-rev" ]] || _fail "could not simulate missing .git-rev"
+_ok "removed .git-rev to simulate a pre-fix tag copy"
+
+echo "  running check-push.sh (no remote changes)..."
+_run_check_push
+
+REV_BACKFILLED=$(_read_git_rev "webapp.prod.v2026Q2.0.0")
+[[ -n "$REV_BACKFILLED" ]] || \
+  _fail "webapp.prod.v2026Q2.0.0 .git-rev not backfilled on re-run (early-return skipped it)"
+[[ "$REV_BACKFILLED" == "$EXPECTED_TAG_REV" ]] || \
+  _fail "backfilled .git-rev='$REV_BACKFILLED' != tag rev '$EXPECTED_TAG_REV'"
+_ok "webapp.prod.v2026Q2.0.0 .git-rev backfilled (${REV_BACKFILLED:0:8})"
 
 # ---------------------------------------------------------------------------
 # 3. Delete a branch from remote — copy should become to-be-removed
