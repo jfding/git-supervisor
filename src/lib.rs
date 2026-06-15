@@ -465,6 +465,12 @@ pub async fn run_watch(
     let mut last_remote_refs: HashMap<String, String> = HashMap::new();
     let mut first_timer_done = false;
 
+    // Background version check: cache-gated, never blocks the loop, swallows
+    // all errors. Runs on a blocking thread because it shells out to git.
+    // opts.version is cloned because it is moved into the webhook server below.
+    let current_version = opts.version.clone();
+    tokio::task::spawn_blocking(move || version_check::maybe_notify_update(&current_version));
+
     if !opts.skip_prepare {
         run_prepare(config, opts.ignore_missing)?;
     }
