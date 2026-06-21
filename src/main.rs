@@ -1,6 +1,6 @@
 use clap::Parser;
 use git_supervisor::console;
-use git_supervisor::{run_check, run_cleanup, run_local_watch, run_status, run_watch, CentralConfig, CleanupOpts, StatusOpts, WatchOpts, CHECK_PUSH_SCRIPT};
+use git_supervisor::{run_check, run_cleanup, run_local_watch, run_status, run_version_check, run_watch, CentralConfig, CleanupOpts, StatusOpts, WatchOpts, CHECK_PUSH_SCRIPT};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -27,6 +27,8 @@ enum Command {
     Watch(WatchArgs),
     /// Print the embedded check-push.sh script to stdout
     PrintScript,
+    /// Print the current version and check GitHub for a newer release
+    Version,
 }
 
 #[derive(clap::Args)]
@@ -117,6 +119,7 @@ fn main() {
             print!("{}", CHECK_PUSH_SCRIPT);
             Ok(())
         }
+        Command::Version => run_version_check(env!("CARGO_PKG_VERSION")),
         Command::Check => {
             let path = config_path.unwrap_or_else(|| {
                 console::log_error(
@@ -253,6 +256,12 @@ mod tests {
     fn cli_gh_webhook_subcommand_removed() {
         let result = Cli::try_parse_from(["supervisor", "gh-webhook", "--secret", "s"]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn cli_version_subcommand_parses() {
+        let cli = Cli::try_parse_from(["supervisor", "version"]).unwrap();
+        assert!(matches!(cli.command, Command::Version));
     }
 
     #[test]

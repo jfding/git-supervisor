@@ -62,6 +62,9 @@ git-supervisor status [--config deployments.yaml] [--host PATTERN]...
 # Prepare remotes (create dirs, ensure repos) then run check-push on each host in a loop
 git-supervisor watch [--config deployments.yaml] [--interval SECS] [--timeout SECS] [-I | --ignore-missing]
                      [--webhook-secret SECRET] [--webhook-port PORT]
+
+# Print the current version and check GitHub for a newer release
+git-supervisor version
 ```
 
 - Config is an optional argument to each subcommand; default: `deployments.yaml`.
@@ -87,6 +90,7 @@ git-supervisor watch [--config deployments.yaml] [--interval SECS] [--timeout SE
 
 - **watch**: first prepares each remote (create dirs, init empty repos by cloning when missing unless `-I`/`--ignore-missing`). Then, on the supervisor machine, it polls upstream refs for all configured repos. It only runs remote `check-push` on hosts whose configured repos have upstream changes (first round always runs on all hosts). `--interval` (default 120) controls polling cadence, optional `--timeout` stops after SECS, `-I`/`--ignore-missing` skips cloning (only create dirs; missing repos are ignored). Run until Ctrl+C if no timeout.
 - Remotes must have **SSH** access (key-based) and **git** installed. For local hosts (`localhost`, `127.0.0.1`, `::1`, including forms like `user@localhost`), supervisor runs commands directly on the local machine and does not require an SSH daemon.
+- **version**: print the current version and check [GitHub Releases](https://github.com/jfding/git-supervisor/releases) for the latest published release (via `git ls-remote --tags` — no extra tooling, since `git` is already required). If a newer release exists, it prints the new tag and the download URL. This is **notify-only**: it never downloads or replaces the binary. The `watch` command runs the same check once at startup (cached for 24h under `~/.cache/git-supervisor/version-check.json`) and prints a one-line notice if a newer release is available; the check is best-effort and any error is silently ignored so it never interrupts watching.
 
 ### GitHub Webhook settings
 
