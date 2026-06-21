@@ -37,3 +37,7 @@ else
 fi
 
 echo "Version set to $v in Cargo.toml/lock, core/check-push.sh and reference (docker)compose.yml"
+
+# continue to do the git actions
+git commit -as -m "bump version to $v"
+git tag -m "v${v}" "v${v}" -f
