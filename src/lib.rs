@@ -150,7 +150,9 @@ fn poll_changed_repos(
             }
             Err(e) => {
                 console::log_warning(format!("polling failed for repo [{}]: {}", repo_name, e));
-                failed_repos.insert(repo_name);
+                failed_repos.insert(repo_name.clone());
+                // Clear the up-to-date status so the repo is retried in the next cycle
+                last_refs.remove(&repo_name);
             }
         }
     }
