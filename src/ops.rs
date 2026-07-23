@@ -221,6 +221,9 @@ fn build_check_push_extra_env(env: &CheckPushEnv) -> String {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CheckPushReport {
     pub failed_repos: Vec<String>,
+    /// True when remote exited 1 with no RESULT lines (unknown worker failure).
+    /// Caller should mark all repos in this run's whitelist as failed.
+    pub exit_was_fail_with_empty_result: bool,
 }
 
 /// Parse machine RESULT lines from check-push stdout (`result\tfail\t<repo>`).
@@ -243,6 +246,7 @@ pub fn parse_check_push_result(stdout: &str) -> CheckPushReport {
     }
     CheckPushReport {
         failed_repos: set.into_iter().collect(),
+        exit_was_fail_with_empty_result: false,
     }
 }
 
@@ -276,13 +280,13 @@ pub fn run_check_push_remote(
     );
     let (status, stdout) = ssh::ssh_run_inherit_stderr_capture_stdout(host, &command, script.as_bytes())
         .context("run check-push on remote failed")?;
-    let report = parse_check_push_result(&stdout);
+    let mut report = parse_check_push_result(&stdout);
     if status.success() {
         return Ok(report);
     }
     let code = status.code().unwrap_or(1);
     if code == 1 {
-        // Caller may expand empty report to full whitelist.
+        report.exit_was_fail_with_empty_result = report.failed_repos.is_empty();
         return Ok(report);
     }
     anyhow::bail!("ssh exited with {}: {}", status, stdout.trim())
