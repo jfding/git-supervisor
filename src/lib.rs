@@ -183,7 +183,7 @@ fn should_run_host_remote(
 /// Merge a remote check-push report into host-scoped `deploy_failures`.
 /// Only repos in this run's whitelist `W` are updated. Empty RESULT + exit 1
 /// (`exit_was_fail_with_empty_result`) marks all of `W` as failed.
-fn merge_deploy_failures(
+pub fn merge_deploy_failures(
     deploy_failures: &mut HashMap<String, HashSet<String>>,
     host_id: &str,
     whitelist: &HashSet<String>,
