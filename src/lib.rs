@@ -416,14 +416,18 @@ fn run_cycle(
 
             any_host_ran = true;
             s.spawn(move || {
-                if let Err(e) = ops::run_check_push_remote(
+                // Task 3 wires CheckPushReport into deploy_failures; discard for now.
+                match ops::run_check_push_remote(
                     host,
                     &host_id,
                     &dir_base,
                     CHECK_PUSH_SCRIPT,
                     &check_push_env,
                 ) {
-                    console::log_error(format!("Failed on {{{}}}: {}", host_id, e));
+                    Ok(_report) => {}
+                    Err(e) => {
+                        console::log_error(format!("Failed on {{{}}}: {}", host_id, e));
+                    }
                 }
             });
         }
