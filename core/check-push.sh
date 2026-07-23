@@ -72,9 +72,9 @@ function _logging {
         _line=$(_color_wrap "${_color}" "${_line}")
       fi
       if _color_enabled; then
-        printf '%b\n' "${_line}"
+        printf '%b\n' "${_line}" >&2
       else
-        printf '%s\n' "${_line}"
+        printf '%s\n' "${_line}" >&2
       fi
     fi
 }
@@ -686,7 +686,10 @@ function fetch_and_check {
 function main_loop {
   local _repo
   local _worker_pid
-  local _worker_failed=0
+  local _any_hard_fail
+  local _fail_dir
+  local _f
+  local _failed_repo
 
   cd "$DIR_REPOS" || {
     err "failed to cd to DIR_REPOS: $DIR_REPOS, critical issue, abort"
@@ -695,6 +698,7 @@ function main_loop {
 
   # loop like a daemon
   while true; do
+    _any_hard_fail=0
 
     # Acquire lock
     acquire_lock "${CI_LOCK}" || exit 1
@@ -721,26 +725,46 @@ function main_loop {
       fi
     )
 
+    _fail_dir=$(mktemp -d "${TMPDIR:-/tmp}/gs-fail.XXXXXX") || {
+      err "failed to create FAIL_DIR"; exit 1
+    }
+
     for _repo in $REPOS_TO_CHECK; do
       info "[${_repo}] checking git upstream changes ..."
-      ( LOG_PREFIX="[${_repo}]"; fetch_and_check "${_repo}" ) &
+      (
+        LOG_PREFIX="[${_repo}]"
+        if ! fetch_and_check "${_repo}"; then
+          printf '%s\n' "${_repo}" > "${_fail_dir}/${_repo}"
+          exit 1
+        fi
+      ) &
     done
 
     for _worker_pid in $(jobs -pr); do
-      wait "${_worker_pid}" || _worker_failed=1
+      wait "${_worker_pid}" || _any_hard_fail=1
     done
-    [[ "${_worker_failed}" == "1" ]] && err "one or more repo workers failed in this round"
-    _worker_failed=0
+    for _f in "${_fail_dir}"/*; do
+      [[ -e "$_f" ]] || continue
+      _failed_repo=$(basename "$_f")
+      printf 'result\tfail\t%s\n' "${_failed_repo}"
+      _any_hard_fail=1
+    done
+    rm -rf "${_fail_dir}"
+    [[ "${_any_hard_fail}" == "1" ]] && err "one or more repo workers failed in this round"
 
     # Release lock
     release_lock "${CI_LOCK}"
 
     if [[ "${1:-}" == "once" ]]; then
+      [[ "${_any_hard_fail}" == "1" ]] && exit 1
       exit 0
     fi
 
     # if SLEEP_TIME value is empty or value is 0, means run once and exit
-    [[ $SLEEP_TIME == "" ]] || [[ $SLEEP_TIME == "0" ]] && exit 0
+    [[ $SLEEP_TIME == "" ]] || [[ $SLEEP_TIME == "0" ]] && {
+      [[ "${_any_hard_fail}" == "1" ]] && exit 1
+      exit 0
+    }
 
     info "waiting for next check ..."
     sleep "$SLEEP_TIME"
