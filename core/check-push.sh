@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # LICENSE: MIT
 
-VERSION="2.1.9"
+VERSION="2.1.10"
 
 set -u
 set -o pipefail
