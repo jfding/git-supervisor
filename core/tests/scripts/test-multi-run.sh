@@ -174,13 +174,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2b. Pre-existing tag copy missing .git-rev — must be backfilled (self-heal)
+# 2b. Pre-existing tag copy missing .git-rev — must be restored (self-heal)
 # ---------------------------------------------------------------------------
-# Tag copies are immutable: checkout_and_copy_tag returns early when the dir
-# already exists. Copies created before .git-rev support (or otherwise missing
-# the file) must get it backfilled on the next run, not skipped forever.
+# Early-return only when dir exists AND .git-rev matches the tag commit.
+# Copies missing .git-rev (or with a mismatched rev) fall through and re-extract.
 echo ""
-echo "--- Scenario 2b: backfill .git-rev for pre-existing tag copy ---"
+echo "--- Scenario 2b: restore .git-rev for pre-existing tag copy ---"
 
 TAG_COPY="$DIR_BASE/copies/webapp.prod.v2026Q2.0.0"
 rm -f "$TAG_COPY/.git-rev"
@@ -190,12 +189,12 @@ _ok "removed .git-rev to simulate a pre-fix tag copy"
 echo "  running check-push.sh (no remote changes)..."
 _run_check_push
 
-REV_BACKFILLED=$(_read_git_rev "webapp.prod.v2026Q2.0.0")
-[[ -n "$REV_BACKFILLED" ]] || \
-  _fail "webapp.prod.v2026Q2.0.0 .git-rev not backfilled on re-run (early-return skipped it)"
-[[ "$REV_BACKFILLED" == "$EXPECTED_TAG_REV" ]] || \
-  _fail "backfilled .git-rev='$REV_BACKFILLED' != tag rev '$EXPECTED_TAG_REV'"
-_ok "webapp.prod.v2026Q2.0.0 .git-rev backfilled (${REV_BACKFILLED:0:8})"
+REV_RESTORED=$(_read_git_rev "webapp.prod.v2026Q2.0.0")
+[[ -n "$REV_RESTORED" ]] || \
+  _fail "webapp.prod.v2026Q2.0.0 .git-rev not restored on re-run"
+[[ "$REV_RESTORED" == "$EXPECTED_TAG_REV" ]] || \
+  _fail "restored .git-rev='$REV_RESTORED' != tag rev '$EXPECTED_TAG_REV'"
+_ok "webapp.prod.v2026Q2.0.0 .git-rev restored (${REV_RESTORED:0:8})"
 
 # ---------------------------------------------------------------------------
 # 3. Delete a branch from remote — copy should become to-be-removed

@@ -437,13 +437,10 @@ function checkout_and_copy_tag {
   local _origin_ref
   _origin_ref=$(git rev-parse "$_tag" 2>/dev/null)
 
-  # if path exists, skip the copy (tag copies are immutable) but backfill a
-  # missing .git-rev — copies created before .git-rev support never get one
-  # otherwise, since we return early here on every subsequent run
-  if [[ -d "$_cp_path" ]]; then
-    if [[ ! -f "$_cp_path/.git-rev" ]] && [[ -n "$_origin_ref" ]]; then
-      echo -n "$_origin_ref" > "$_cp_path/.git-rev"
-    fi
+  # if path exists and .git-rev already matches this tag's commit, skip the copy
+  # (tag copies are immutable). Otherwise fall through to (re)extract.
+  if [[ -d "$_cp_path" ]] && [[ -f "$_cp_path/.git-rev" ]] &&
+     [[ "$(<"$_cp_path/.git-rev")" == "$_origin_ref" ]]; then
     return
   fi
 
