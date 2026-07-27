@@ -577,7 +577,7 @@ function fetch_and_check {
   [[ -f .git/index.lock ]] && rm -f .git/index.lock
 
   verbose "..syncing all remote branches and tags..."
-  _timeout git fetch -q --all --tags --prune --prune-tags || {
+  _timeout git fetch -q --force --all --tags --prune --prune-tags || {
     err "failed to fetch repo $_repo, skip"
     return 1
   }
