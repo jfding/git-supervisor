@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use std::io::Write;
-use std::process::{Command, Stdio};
+use std::io::{Read, Write};
+use std::process::{Command, ExitStatus, Stdio};
 
 use crate::config::Host;
 
@@ -118,6 +118,41 @@ pub fn ssh_run_with_stdin(host: &Host, command: &str, stdin_data: &[u8]) -> Resu
     }
 }
 
+/// Pipe stdin; inherit stderr (live logs); capture stdout.
+///
+/// Does not auto-bail on non-zero exit — caller interprets status and RESULT lines.
+/// Uses an explicit stdout reader thread because `wait_with_output` requires piped
+/// stderr and would conflict with inherited live logs.
+pub fn ssh_run_inherit_stderr_capture_stdout(
+    host: &Host,
+    command: &str,
+    stdin_data: &[u8],
+) -> Result<(ExitStatus, String)> {
+    let mut cmd = build_ssh_command(host)?;
+    cmd.arg(command)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
+    let mut child = cmd.spawn().context("Failed to execute ssh")?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(stdin_data)
+            .context("Failed to write ssh stdin")?;
+    }
+    let mut stdout_pipe = child
+        .stdout
+        .take()
+        .context("Failed to take ssh stdout pipe")?;
+    let handle = std::thread::spawn(move || {
+        let mut buf = String::new();
+        Read::read_to_string(&mut stdout_pipe, &mut buf).ok();
+        buf
+    });
+    let status = child.wait().context("Failed to wait for ssh")?;
+    let stdout = handle.join().unwrap_or_default();
+    Ok((status, stdout))
+}
+
 /// Run `command` on `host` with `stdin_data` piped in; capture stdout and stderr.
 /// Returns captured stdout on success. On non-zero exit, `Err` includes the status
 /// code and trimmed stderr in its message.
@@ -209,5 +244,19 @@ mod tests {
         let s = err.to_string();
         assert!(s.contains("7"), "exit code in error: {}", s);
         assert!(s.contains("boom"), "stderr in error: {}", s);
+    }
+
+    #[test]
+    fn inherit_stderr_capture_stdout_localhost() {
+        let h = host("localhost");
+        // Use printf (portable): localhost path is `sh -lc`, and dash lacks $'\t'.
+        let (status, out) = ssh_run_inherit_stderr_capture_stdout(
+            &h,
+            "echo err >&2; printf 'result\\tfail\\tr1\\n'; exit 1",
+            b"",
+        )
+        .unwrap();
+        assert!(!status.success());
+        assert!(out.contains("result\tfail\tr1"));
     }
 }

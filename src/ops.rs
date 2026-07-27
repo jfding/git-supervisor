@@ -217,16 +217,52 @@ fn build_check_push_extra_env(env: &CheckPushEnv) -> String {
     }
 }
 
+/// Report of hard-failed repos from a remote check-push run.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct CheckPushReport {
+    pub failed_repos: Vec<String>,
+    /// True when remote exited 1 with no RESULT lines (unknown worker failure).
+    /// Caller should mark all repos in this run's whitelist as failed.
+    pub exit_was_fail_with_empty_result: bool,
+}
+
+/// Parse machine RESULT lines from check-push stdout (`result\tfail\t<repo>`).
+/// Ignores noise; returns sorted unique repo names.
+pub fn parse_check_push_result(stdout: &str) -> CheckPushReport {
+    let mut set = BTreeSet::new();
+    for line in stdout.lines() {
+        let mut parts = line.split('\t');
+        if parts.next() != Some("result") {
+            continue;
+        }
+        if parts.next() != Some("fail") {
+            continue;
+        }
+        if let Some(repo) = parts.next() {
+            if !repo.is_empty() && parts.next().is_none() {
+                set.insert(repo.to_string());
+            }
+        }
+    }
+    CheckPushReport {
+        failed_repos: set.into_iter().collect(),
+        exit_was_fail_with_empty_result: false,
+    }
+}
+
 /// Run the embedded check-push.sh script on the remote host with sandbox env.
 /// dir_base is the host's work dir (e.g. /work); script runs with DIR_BASE set and --once.
 /// env supplies REPO_WHITELIST, BR_WHITELIST_PER_REPO, RELEASE_TAG_* when set.
+///
+/// Exit 0 / 1 both return `Ok(CheckPushReport)` (caller may expand empty exit-1
+/// report to full whitelist). Other non-zero exits are infrastructure errors.
 pub fn run_check_push_remote(
     host: &Host,
     host_id: &str,
     dir_base: &Path,
     script: &str,
     env: &CheckPushEnv,
-) -> Result<()> {
+) -> Result<CheckPushReport> {
     let dir_base_esc = escape_single_quoted(&dir_base.to_string_lossy());
     let host_id_esc = escape_single_quoted(host_id);
     let extra = build_check_push_extra_env(env);
@@ -242,8 +278,18 @@ pub fn run_check_push_remote(
         if console::color_enabled() { " FORCE_COLOR=1" } else { "" },
         extra
     );
-    ssh::ssh_run_with_stdin(host, &command, script.as_bytes())
-        .context("run check-push on remote failed")
+    let (status, stdout) = ssh::ssh_run_inherit_stderr_capture_stdout(host, &command, script.as_bytes())
+        .context("run check-push on remote failed")?;
+    let mut report = parse_check_push_result(&stdout);
+    if status.success() {
+        return Ok(report);
+    }
+    let code = status.code().unwrap_or(1);
+    if code == 1 {
+        report.exit_was_fail_with_empty_result = report.failed_repos.is_empty();
+        return Ok(report);
+    }
+    anyhow::bail!("ssh exited with {}: {}", status, stdout.trim())
 }
 
 /// Run the embedded check-push.sh script once on the local machine.
@@ -388,5 +434,24 @@ mod tests {
         };
 
         assert_eq!(normalize(a), normalize(b));
+    }
+
+    #[test]
+    fn parse_check_push_result_collects_fail_lines() {
+        let stdout = "result\tfail\trepo-a\nresult\tfail\trepo-b\n";
+        let report = parse_check_push_result(stdout);
+        assert_eq!(report.failed_repos, vec!["repo-a", "repo-b"]);
+    }
+
+    #[test]
+    fn parse_check_push_result_ignores_noise_and_dedups() {
+        let stdout = "hello\nresult\tfail\tx\nresult\tfail\tx\n";
+        let report = parse_check_push_result(stdout);
+        assert_eq!(report.failed_repos, vec!["x"]);
+    }
+
+    #[test]
+    fn parse_check_push_result_empty() {
+        assert!(parse_check_push_result("").failed_repos.is_empty());
     }
 }

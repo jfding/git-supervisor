@@ -180,6 +180,52 @@ fn should_run_host_remote(
             .any(|repo| failed_repos.contains(repo))
 }
 
+/// Merge a remote check-push report into host-scoped `deploy_failures`.
+/// Only repos in this run's whitelist `W` are updated. Empty RESULT + exit 1
+/// (`exit_was_fail_with_empty_result`) marks all of `W` as failed.
+pub fn merge_deploy_failures(
+    deploy_failures: &mut HashMap<String, HashSet<String>>,
+    host_id: &str,
+    whitelist: &HashSet<String>,
+    report: &ops::CheckPushReport,
+    exit_was_fail_with_empty_result: bool,
+) {
+    let entry = deploy_failures.entry(host_id.to_string()).or_default();
+    let failed: HashSet<String> = if exit_was_fail_with_empty_result {
+        whitelist.clone()
+    } else {
+        report
+            .failed_repos
+            .iter()
+            .filter(|r| whitelist.contains(*r))
+            .cloned()
+            .collect()
+    };
+    for repo in whitelist {
+        if failed.contains(repo) {
+            entry.insert(repo.clone());
+        } else {
+            entry.remove(repo);
+        }
+    }
+    if entry.is_empty() {
+        deploy_failures.remove(host_id);
+    }
+}
+
+/// Union probe `failed_repos` with this host's prior deploy failures.
+fn failure_set_for_host<'a>(
+    probe_failed: &'a HashSet<String>,
+    deploy_failures: &'a HashMap<String, HashSet<String>>,
+    host_id: &str,
+) -> HashSet<String> {
+    let mut s = probe_failed.clone();
+    if let Some(df) = deploy_failures.get(host_id) {
+        s.extend(df.iter().cloned());
+    }
+    s
+}
+
 /// Check config and remotes: validate SSH/git connectivity and repo existence on each host.
 pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
@@ -302,6 +348,7 @@ fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyho
 fn run_cycle(
     config: &CentralConfig,
     last_remote_refs: &mut HashMap<String, String>,
+    deploy_failures: &mut HashMap<String, HashSet<String>>,
     round: u64,
     first_round: bool,
     skip_poll: bool,
@@ -338,6 +385,11 @@ fn run_cycle(
 
     let mut any_host_ran = false;
     let mut skipped_hosts: Vec<String> = Vec::new();
+    // Collect remote outcomes under a Mutex; merge into deploy_failures after scope.
+    let outcomes: std::sync::Mutex<
+        Vec<(String, HashSet<String>, Result<ops::CheckPushReport, anyhow::Error>)>,
+    > = std::sync::Mutex::new(Vec::new());
+
     std::thread::scope(|s| {
         for (host_id, host) in &config.hosts {
             let host_id = host_id.clone();
@@ -352,6 +404,15 @@ fn run_cycle(
             if !is_wildcard && host_repo_names.is_empty() {
                 continue;
             }
+
+            let host_failures = failure_set_for_host(&failed_repos, deploy_failures, &host_id);
+            let has_deploy_failure = host_repo_names
+                .iter()
+                .any(|repo| {
+                    deploy_failures
+                        .get(&host_id)
+                        .is_some_and(|df| df.contains(repo))
+                });
 
             // Wildcard hosts always run (we can't poll repos we don't know about).
             // Webhook-triggered cycles always run all hosts.
@@ -368,7 +429,7 @@ fn run_cycle(
                     first_round,
                     &host_repo_names,
                     &changed_repos,
-                    &failed_repos,
+                    &host_failures,
                 );
                 if !should_run {
                     skipped_hosts.push(host_id.clone());
@@ -376,6 +437,12 @@ fn run_cycle(
                 if has_probe_failure && !first_round && !has_changed_repo && should_run {
                     console::log_warning(format!(
                         "watch: host {{{}}} has probe failures, running remote check-push defensively",
+                        host_id
+                    ));
+                }
+                if has_deploy_failure && !first_round && !has_changed_repo && should_run {
+                    console::log_warning(format!(
+                        "watch: host {{{}}} has deploy failures, running remote check-push defensively",
                         host_id
                     ));
                 }
@@ -394,7 +461,7 @@ fn run_cycle(
                     host_repo_names
                         .iter()
                         .filter(|name| {
-                            changed_repos.contains(*name) || failed_repos.contains(*name)
+                            changed_repos.contains(*name) || host_failures.contains(*name)
                         })
                         .cloned()
                         .collect(),
@@ -402,6 +469,17 @@ fn run_cycle(
             } else {
                 None
             };
+            // Whitelist W used for merge: config aliases (same key space as probe failed_repos).
+            let whitelist_for_merge: HashSet<String> = match &effective_filter {
+                Some(f) => f.clone(),
+                None => host_repo_names.iter().cloned().collect(),
+            };
+            // RESULT lines use dir_name(); map back to config alias for deploy_failures.
+            let dir_to_name: HashMap<String, String> = config
+                .repos_for_host(&host_id)
+                .into_iter()
+                .map(|r| (r.dir_name().to_string(), r.name.clone()))
+                .collect();
             let (repo_whitelist, br_whitelist_per_host) =
                 whitelists_from_config(config, &host_id, effective_filter.as_ref());
             let check_push_env = ops::CheckPushEnv {
@@ -415,19 +493,50 @@ fn run_cycle(
             };
 
             any_host_ran = true;
+            let outcomes = &outcomes;
             s.spawn(move || {
-                if let Err(e) = ops::run_check_push_remote(
+                let result = ops::run_check_push_remote(
                     host,
                     &host_id,
                     &dir_base,
                     CHECK_PUSH_SCRIPT,
                     &check_push_env,
-                ) {
+                )
+                .map(|report| ops::CheckPushReport {
+                    failed_repos: report
+                        .failed_repos
+                        .into_iter()
+                        .filter_map(|d| dir_to_name.get(&d).cloned())
+                        .collect(),
+                    exit_was_fail_with_empty_result: report.exit_was_fail_with_empty_result,
+                });
+                if let Err(ref e) = result {
                     console::log_error(format!("Failed on {{{}}}: {}", host_id, e));
                 }
+                outcomes
+                    .lock()
+                    .unwrap()
+                    .push((host_id, whitelist_for_merge, result));
             });
         }
     });
+
+    for (host_id, whitelist, result) in outcomes.into_inner().unwrap() {
+        match result {
+            Ok(report) => {
+                merge_deploy_failures(
+                    deploy_failures,
+                    &host_id,
+                    &whitelist,
+                    &report,
+                    report.exit_was_fail_with_empty_result,
+                );
+            }
+            Err(_) => {
+                // SSH/infra failure: do not clear prior deploy_failures for this host.
+            }
+        }
+    }
 
     if any_host_ran && !skipped_hosts.is_empty() {
         console::log_info(format!("watch: skip {{{}}} (no remote repo changes)", skipped_hosts.join(", ")));
@@ -465,6 +574,7 @@ pub async fn run_watch(
     let deadline = opts.timeout_secs.map(|s| Instant::now() + Duration::from_secs(s));
     let mut round: u64 = 0;
     let mut last_remote_refs: HashMap<String, String> = HashMap::new();
+    let mut deploy_failures: HashMap<String, HashSet<String>> = HashMap::new();
     let mut first_timer_done = false;
 
     // Background version check: cache-gated, never blocks the loop, swallows
@@ -555,13 +665,24 @@ pub async fn run_watch(
         // run_cycle uses std::thread::scope (blocking SSH), so run in spawn_blocking
         let config_clone = config.clone();
         let mut refs = std::mem::take(&mut last_remote_refs);
+        let mut failures = std::mem::take(&mut deploy_failures);
         let trigger_label = trigger_label.to_string();
-        let returned_refs = tokio::task::spawn_blocking(move || {
-            run_cycle(&config_clone, &mut refs, round, first_round, skip_poll, &trigger_label, wh_tag);
-            refs
+        let (returned_refs, returned_failures) = tokio::task::spawn_blocking(move || {
+            run_cycle(
+                &config_clone,
+                &mut refs,
+                &mut failures,
+                round,
+                first_round,
+                skip_poll,
+                &trigger_label,
+                wh_tag,
+            );
+            (refs, failures)
         })
         .await?;
         last_remote_refs = returned_refs;
+        deploy_failures = returned_failures;
     }
 
     Ok(())
@@ -701,5 +822,51 @@ mod tests {
             &changed,
             &failed
         ));
+    }
+
+    #[test]
+    fn merge_deploy_failures_inserts_and_clears() {
+        let mut df = HashMap::new();
+        let wl: HashSet<_> = ["a", "b"].into_iter().map(String::from).collect();
+        let report = ops::CheckPushReport {
+            failed_repos: vec!["a".into()],
+            ..Default::default()
+        };
+        merge_deploy_failures(&mut df, "h1", &wl, &report, false);
+        assert_eq!(df.get("h1").unwrap(), &HashSet::from(["a".into()]));
+        let report_ok = ops::CheckPushReport {
+            failed_repos: vec![],
+            ..Default::default()
+        };
+        merge_deploy_failures(&mut df, "h1", &wl, &report_ok, false);
+        assert!(df.get("h1").is_none());
+    }
+
+    #[test]
+    fn merge_deploy_failures_empty_result_marks_whitelist() {
+        let mut df = HashMap::new();
+        let wl: HashSet<_> = ["a", "b"].into_iter().map(String::from).collect();
+        let report = ops::CheckPushReport {
+            failed_repos: vec![],
+            ..Default::default()
+        };
+        merge_deploy_failures(&mut df, "h1", &wl, &report, true);
+        assert_eq!(df.get("h1").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn failure_set_for_host_unions_probe_and_deploy() {
+        let probe: HashSet<_> = ["a".into()].into_iter().collect();
+        let mut df = HashMap::new();
+        df.insert(
+            "h1".into(),
+            ["b".into()].into_iter().collect::<HashSet<_>>(),
+        );
+        let union = failure_set_for_host(&probe, &df, "h1");
+        assert_eq!(union, HashSet::from(["a".into(), "b".into()]));
+        assert_eq!(
+            failure_set_for_host(&probe, &df, "other"),
+            HashSet::from(["a".into()])
+        );
     }
 }
