@@ -22,6 +22,22 @@ create_docker_script() {
     echo "Created docker file: $docker_path (container: $docker_name)"
 }
 
+# Multi-line *.docker: one container name per line (first name used for hooks)
+create_multi_docker_script() {
+    local repo_name=$1
+    local branch=$2
+    local docker_path="$COPIES_DIR/${repo_name}.${branch}.docker"
+
+    cat > "$docker_path" <<EOF
+${repo_name}-${branch}
+
+${repo_name}-${branch}-b
+invalid name!
+${repo_name}-${branch}-c
+EOF
+    echo "Created multi-line docker file: $docker_path"
+}
+
 create_docker_hook_jobs() {
     local docker_path=$1
 
@@ -42,7 +58,7 @@ EOF
 
 # Create various test scenarios
 echo "Creating Docker restart files..."
-create_docker_script "webapp" "main"
+create_multi_docker_script "webapp" "main"
 create_docker_script "api-service" "main"
 echo "webapp-prod" > "$COPIES_DIR/webapp.prod.docker"
 echo "Created docker file: $COPIES_DIR/webapp.prod.docker (container: webapp-prod)"

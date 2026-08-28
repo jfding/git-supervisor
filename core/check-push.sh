@@ -380,12 +380,19 @@ function _run_docker_hook_job {
 
 
 function _handle_docker {
-    # restart docker instance
+    # restart docker instance(s); *.docker may list one name per line
     local _docker_path=$1
     local _work_dir="${2:-}"
     local _pre_hook_path="${_docker_path}.pre"
     local _post_hook_path="${_docker_path}.post"
     local _docker_name
+    local _first_docker_name=""
+    local _line
+    local _had_invalid=0
+    local _restart_failed=0
+    local _first_restart_ok=0
+    local _idx
+    local -a _docker_names=()
 
     if [[ -f "${_docker_path}" ]]; then
       command -v docker >/dev/null || {
@@ -393,24 +400,52 @@ function _handle_docker {
         return
       }
 
-      _docker_name=$(cat "${_docker_path}" | tr -d '\n\r')
+      while IFS= read -r _line || [[ -n "${_line}" ]]; do
+        # trim leading/trailing whitespace; skip blank lines
+        _line="${_line#"${_line%%[![:space:]]*}"}"
+        _line="${_line%"${_line##*[![:space:]]}"}"
+        [[ -z "${_line}" ]] && continue
 
-      # Validate docker name to prevent command injection
-      if [[ ! $_docker_name =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
-        err "invalid docker name format in ${_docker_path}, skipping"
+        # Validate docker name to prevent command injection
+        if [[ ! ${_line} =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+          warn "invalid docker name format in ${_docker_path}: ${_line}, skipping"
+          _had_invalid=1
+          continue
+        fi
+        _docker_names+=("${_line}")
+      done < "${_docker_path}"
+
+      if [[ ${#_docker_names[@]} -eq 0 ]]; then
+        err "no valid docker names in ${_docker_path}, skipping"
         return 1
       fi
 
-      _run_docker_hook_job "${_pre_hook_path}" "pre" "${_docker_name}" "${_work_dir}" || return 1
+      _first_docker_name="${_docker_names[0]}"
 
-      highlight "..restarting docker [ $_docker_name ]"
-      _timeout docker restart "${_docker_name}" > /dev/null || {
-          err "failed to restart docker [ $_docker_name ]"
-          return 1
-      }
+      _run_docker_hook_job "${_pre_hook_path}" "pre" "${_first_docker_name}" "${_work_dir}" || return 1
 
-      _run_docker_hook_job "${_post_hook_path}" "post" "${_docker_name}" "${_work_dir}" || return 1
-      unset _docker_name
+      _idx=0
+      for _docker_name in "${_docker_names[@]}"; do
+        highlight "..restarting docker [ ${_docker_name} ]"
+        if _timeout docker restart "${_docker_name}" > /dev/null; then
+          if [[ ${_idx} -eq 0 ]]; then
+            _first_restart_ok=1
+          fi
+        else
+          err "failed to restart docker [ ${_docker_name} ]"
+          _restart_failed=1
+        fi
+        ((_idx++)) || true
+      done
+
+      # post-hook only if the first valid name restarted successfully
+      if [[ ${_first_restart_ok} -eq 1 ]]; then
+        _run_docker_hook_job "${_post_hook_path}" "post" "${_first_docker_name}" "${_work_dir}" || return 1
+      fi
+
+      if [[ ${_had_invalid} -ne 0 || ${_restart_failed} -ne 0 ]]; then
+        return 1
+      fi
     fi
 }
 
@@ -551,7 +586,7 @@ function checkout_and_copy_br {
 
     # restart docker instance
     _handle_docker "${_docker_path}" "${_cp_path}" || \
-      err "WARNING: failed to restart docker instance for [ $_br ], ignoring"
+      err "WARNING: something wrong when restarting docker instance for [ $_br ], ignoring"
   fi
 }
 

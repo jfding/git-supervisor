@@ -48,10 +48,13 @@ echo ""
 # Run the script (BR_WHITELIST from env when run via launch-testing.sh / test-config.sh)
 # Use a local fake docker binary so docker restart hooks are testable on any host.
 FAKE_DOCKER_DIR="$DIR_BASE/.fake-bin"
+DOCKER_RESTART_LOG="$DIR_BASE/.docker-restarts.log"
 mkdir -p "$FAKE_DOCKER_DIR"
-cat > "$FAKE_DOCKER_DIR/docker" <<'EOF'
+rm -f "$DOCKER_RESTART_LOG"
+cat > "$FAKE_DOCKER_DIR/docker" <<EOF
 #!/usr/bin/env bash
-if [[ "${1:-}" == "restart" ]]; then
+if [[ "\${1:-}" == "restart" ]]; then
+  printf '%s\n' "\${2:-}" >> "$DOCKER_RESTART_LOG"
   exit 0
 fi
 exit 0
@@ -122,6 +125,25 @@ if ! rg -q '^post:webapp-prod$' "$DIR_BASE/copies/webapp.prod.${_expected_latest
   exit 1
 fi
 echo "  OK: docker pre/post hook jobs executed for branch and release restarts"
+
+echo ""
+echo "=== Verifying multi-line *.docker restarts ==="
+if [[ ! -f "$DOCKER_RESTART_LOG" ]]; then
+  echo "Error: missing docker restart log at $DOCKER_RESTART_LOG"
+  exit 1
+fi
+for _name in webapp-main webapp-main-b webapp-main-c; do
+  if ! rg -qx "$_name" "$DOCKER_RESTART_LOG"; then
+    echo "Error: expected docker restart of $_name (multi-line *.docker)"
+    exit 1
+  fi
+done
+if rg -q 'invalid' "$DOCKER_RESTART_LOG"; then
+  echo "Error: invalid docker name should not have been restarted"
+  exit 1
+fi
+# Hooks must use first valid name only (already asserted above as webapp-main)
+echo "  OK: multi-line *.docker restarted all valid names; skipped invalid"
 
 echo ""
 echo "=== Verifying BR_WHITELIST / .skipping behavior ==="
