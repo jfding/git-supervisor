@@ -308,9 +308,12 @@ pub fn run_status(config: &CentralConfig, opts: StatusOpts) -> anyhow::Result<()
                     println!("host: {}  {}", host_id, paint("(empty)", Color::Grey));
                     continue;
                 }
-                println!("host: {}", host_id);
+
+                println!("🖥️: {}", host_id);
+
                 for (repo_name, entries) in repos.unwrap() {
-                    println!("  {}", repo_name);
+                    println!("   {}", repo_name);
+
                     render_rows(&entries.branches, now);
                     if !entries.branches.is_empty() && !entries.releases.is_empty() {
                         println!("    --");
@@ -326,6 +329,7 @@ pub fn run_status(config: &CentralConfig, opts: StatusOpts) -> anyhow::Result<()
                             );
                         }
                     }
+                    println!("");
                 }
             }
         }
