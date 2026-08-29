@@ -104,6 +104,14 @@ fn status_latest_symlink_matches_release_row() {
         !stdout.contains("[missing]"),
         "latest symlink points to a real release, should not be flagged missing; got: {stdout}"
     );
+    let release_row = stdout
+        .lines()
+        .find(|l| l.trim().starts_with("v1.0.0 "))
+        .expect("release row");
+    assert!(
+        release_row.contains("active"),
+        "latest release row should carry active flag; got: {release_row:?}"
+    );
 }
 
 #[test]
