@@ -83,7 +83,7 @@ fn status_handles_dotted_repo_name() {
 fn status_latest_symlink_matches_release_row() {
     // Regression: the probe used to emit the latest's full symlink target
     // ("demo.prod.v1.0.0"), but release rows use just the tag ("v1.0.0").
-    // The comparison in repo_header_annotation always failed → "[missing]".
+    // The comparison always failed → no `latest` flag on the release row.
     let tmp = tempfile::tempdir().unwrap();
     write_release_with_latest(tmp.path(), "demo", "v1.0.0", "abc1234567");
     let cfg = tmp.path().join("config.yaml");
@@ -97,20 +97,16 @@ fn status_latest_symlink_matches_release_row() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(
-        stdout.contains("(latest: v1.0.0)"),
-        "expected '(latest: v1.0.0)' header annotation; got: {stdout}"
-    );
-    assert!(
-        !stdout.contains("[missing]"),
-        "latest symlink points to a real release, should not be flagged missing; got: {stdout}"
+        !stdout.contains("(latest:"),
+        "repo header should not carry latest annotation; got: {stdout}"
     );
     let release_row = stdout
         .lines()
         .find(|l| l.trim().starts_with("v1.0.0 "))
         .expect("release row");
     assert!(
-        release_row.contains("active"),
-        "latest release row should carry active flag; got: {release_row:?}"
+        release_row.contains("latest"),
+        "latest release row should carry latest flag; got: {release_row:?}"
     );
 }
 

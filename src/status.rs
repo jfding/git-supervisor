@@ -138,42 +138,16 @@ pub struct RepoEntries {
     pub latest: Option<Report>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum AnnotationColor { Ok, Unset, Broken }
-
-/// Returns `Some((text, color))` for the repo header annotation, or `None`
-/// when the repo has no releases and no latest pointer (so the header is bare).
-/// Add synthetic `active` flag to release rows that match the `prod.latest` target.
-pub fn enrich_active_release_flags(entries: &mut RepoEntries) {
+/// Add synthetic `latest` flag to release rows that match the `prod.latest` target.
+pub fn enrich_latest_release_flags(entries: &mut RepoEntries) {
     let Some(latest) = &entries.latest else { return };
     let target = &latest.name;
     if target == "-" || target.is_empty() {
         return;
     }
     for release in &mut entries.releases {
-        if release.name == *target && !release.flags.iter().any(|f| f == "active") {
-            release.flags.insert(0, "active".to_string());
-        }
-    }
-}
-
-pub fn repo_header_annotation(entries: &RepoEntries) -> Option<(String, AnnotationColor)> {
-    if entries.releases.is_empty() && entries.latest.is_none() {
-        return None;
-    }
-    match &entries.latest {
-        None => Some(("(latest: unset)".to_string(), AnnotationColor::Unset)),
-        Some(l) => {
-            let target = &l.name;
-            if target == "-" || target.is_empty() {
-                return Some(("(latest: unset)".to_string(), AnnotationColor::Unset));
-            }
-            let matches = entries.releases.iter().any(|r| r.name == *target);
-            if matches {
-                Some((format!("(latest: {})", target), AnnotationColor::Ok))
-            } else {
-                Some((format!("(latest: {} [missing])", target), AnnotationColor::Broken))
-            }
+        if release.name == *target && !release.flags.iter().any(|f| f == "latest") {
+            release.flags.insert(0, "latest".to_string());
         }
     }
 }
@@ -253,7 +227,7 @@ fn render_rows(rows: &[Report], now: u64) {
             paint(line, Color::Red)
         } else if r.flags.iter().any(|f| f == "skipping") {
             paint(line, Color::Grey)
-        } else if r.flags.iter().any(|f| f == "active") {
+        } else if r.flags.iter().any(|f| f == "latest") {
             paint(line, Color::Green)
         } else {
             line
@@ -311,7 +285,7 @@ pub fn run_status(config: &CentralConfig, opts: StatusOpts) -> anyhow::Result<()
     let mut grouped = group_reports(all_reports);
     for repos in grouped.values_mut() {
         for entries in repos.values_mut() {
-            enrich_active_release_flags(entries);
+            enrich_latest_release_flags(entries);
         }
     }
 
@@ -336,18 +310,7 @@ pub fn run_status(config: &CentralConfig, opts: StatusOpts) -> anyhow::Result<()
                 }
                 println!("host: {}", host_id);
                 for (repo_name, entries) in repos.unwrap() {
-                    let header = match repo_header_annotation(entries) {
-                        None => format!("  {}", repo_name),
-                        Some((text, color)) => {
-                            let c = match color {
-                                AnnotationColor::Ok => Color::Green,
-                                AnnotationColor::Unset => Color::Yellow,
-                                AnnotationColor::Broken => Color::Red,
-                            };
-                            format!("  {}  {}", repo_name, paint(&text, c))
-                        }
-                    };
-                    println!("{}", header);
+                    println!("  {}", repo_name);
                     render_rows(&entries.branches, now);
                     if !entries.branches.is_empty() && !entries.releases.is_empty() {
                         println!("    --");
@@ -522,7 +485,7 @@ mod helper_tests {
     }
 
     #[test]
-    fn enrich_active_release_flags_marks_latest_release() {
+    fn enrich_latest_release_flags_marks_latest_release() {
         let mut entries = RepoEntries {
             branches: vec![],
             releases: vec![
@@ -532,13 +495,13 @@ mod helper_tests {
             stale: vec![],
             latest: Some(rep("h", ReportKind::Latest, "r", "v2.1.5")),
         };
-        enrich_active_release_flags(&mut entries);
-        assert!(entries.releases[0].flags.contains(&"active".to_string()));
-        assert!(!entries.releases[1].flags.contains(&"active".to_string()));
+        enrich_latest_release_flags(&mut entries);
+        assert!(entries.releases[0].flags.contains(&"latest".to_string()));
+        assert!(!entries.releases[1].flags.contains(&"latest".to_string()));
     }
 
     #[test]
-    fn enrich_active_release_flags_preserves_existing_flags() {
+    fn enrich_latest_release_flags_preserves_existing_flags() {
         let mut entries = RepoEntries {
             branches: vec![],
             releases: vec![Report {
@@ -553,56 +516,23 @@ mod helper_tests {
             stale: vec![],
             latest: Some(rep("h", ReportKind::Latest, "r", "v2.1.5")),
         };
-        enrich_active_release_flags(&mut entries);
+        enrich_latest_release_flags(&mut entries);
         assert_eq!(
             entries.releases[0].flags,
-            vec!["active".to_string(), "debugging".to_string()],
+            vec!["latest".to_string(), "debugging".to_string()],
         );
     }
 
     #[test]
-    fn enrich_active_release_flags_skips_unset_latest() {
+    fn enrich_latest_release_flags_skips_unset_latest() {
         let mut entries = RepoEntries {
             branches: vec![],
             releases: vec![rep("h", ReportKind::Release, "r", "v2.1.5")],
             stale: vec![],
             latest: Some(rep("h", ReportKind::Latest, "r", "-")),
         };
-        enrich_active_release_flags(&mut entries);
+        enrich_latest_release_flags(&mut entries);
         assert!(entries.releases[0].flags.is_empty());
-    }
-
-    #[test]
-    fn repo_header_no_latest_omits_annotation() {
-        let entries = RepoEntries { branches: vec![], releases: vec![], stale: vec![], latest: None };
-        assert_eq!(repo_header_annotation(&entries), None);
-    }
-
-    #[test]
-    fn repo_header_with_matching_release() {
-        let entries = RepoEntries {
-            branches: vec![],
-            releases: vec![rep("h", ReportKind::Release, "r", "v2.1.5")],
-            stale: vec![],
-            latest: Some(rep("h", ReportKind::Latest, "r", "v2.1.5")),
-        };
-        let (text, color) = repo_header_annotation(&entries).unwrap();
-        assert!(text.contains("v2.1.5"));
-        assert_eq!(color, AnnotationColor::Ok);
-    }
-
-    #[test]
-    fn repo_header_with_missing_target() {
-        let entries = RepoEntries {
-            branches: vec![],
-            releases: vec![rep("h", ReportKind::Release, "r", "v2.1.4")],
-            stale: vec![],
-            latest: Some(rep("h", ReportKind::Latest, "r", "v2.1.5")),
-        };
-        let (text, color) = repo_header_annotation(&entries).unwrap();
-        assert!(text.contains("v2.1.5"));
-        assert!(text.contains("missing"));
-        assert_eq!(color, AnnotationColor::Broken);
     }
 
     #[test]
