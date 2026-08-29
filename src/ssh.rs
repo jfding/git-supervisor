@@ -153,6 +153,20 @@ pub fn ssh_run_inherit_stderr_capture_stdout(
     Ok((status, stdout))
 }
 
+/// Strip known benign SSH/bash stderr noise (e.g. setlocale warnings on hosts
+/// missing the requested locale).
+fn filter_ssh_stderr(stderr: &str) -> String {
+    stderr
+        .lines()
+        .filter(|line| {
+            let line = line.trim();
+            !line.is_empty()
+                && !(line.contains("setlocale:") && line.contains("cannot change locale"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Run `command` on `host` with `stdin_data` piped in; capture stdout and stderr.
 /// Returns captured stdout on success. On non-zero exit, `Err` includes the status
 /// code and trimmed stderr in its message.
@@ -172,7 +186,7 @@ pub fn ssh_run_capture(host: &Host, command: &str, stdin_data: &[u8]) -> Result<
     // avoiding deadlock when remote stderr volume exceeds the pipe buffer.
     let output = child.wait_with_output().context("Failed to wait for ssh")?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = filter_ssh_stderr(&String::from_utf8_lossy(&output.stderr));
     if !output.status.success() {
         anyhow::bail!("ssh exited with {}: {}", output.status, stderr.trim());
     }
@@ -235,6 +249,30 @@ mod tests {
         let h = host("localhost");
         let out = ssh_run_capture(&h, "cat", b"hello\nworld\n").unwrap();
         assert_eq!(out, "hello\nworld\n");
+    }
+
+    #[test]
+    fn filter_ssh_stderr_strips_setlocale_warning() {
+        let input = "bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)";
+        assert!(filter_ssh_stderr(input).is_empty());
+    }
+
+    #[test]
+    fn filter_ssh_stderr_keeps_real_errors() {
+        let input = "bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)\nprobe: /work/copies not readable";
+        assert_eq!(filter_ssh_stderr(input), "probe: /work/copies not readable");
+    }
+
+    #[test]
+    fn ssh_run_capture_localhost_ignores_setlocale_warning() {
+        let h = host("localhost");
+        let out = ssh_run_capture(
+            &h,
+            "echo 'bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)' >&2; printf ok",
+            b"",
+        )
+        .unwrap();
+        assert_eq!(out, "ok");
     }
 
     #[test]

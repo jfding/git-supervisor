@@ -193,7 +193,7 @@ fn collect_host(host_id: &str, host: &Host, dir_base: &std::path::Path) -> HostO
     let dir_esc = dir_base.to_string_lossy().replace('\'', "'\\''");
     let host_esc = host_id.replace('\'', "'\\''");
     let command = format!(
-        "DIR_BASE='{}' HOST_ID='{}' bash -s",
+        "LC_ALL=C DIR_BASE='{}' HOST_ID='{}' bash -s",
         dir_esc, host_esc,
     );
     match ssh::ssh_run_capture(host, &command, STATUS_PROBE_SCRIPT.as_bytes()) {

@@ -116,7 +116,7 @@ fn collect_host(host_id: &str, host: &Host, dir_base: &Path, apply: bool) -> Hos
     let dir_esc = dir_base.to_string_lossy().replace('\'', "'\\''");
     let host_esc = host_id.replace('\'', "'\\''");
     let command = format!(
-        "DIR_BASE='{}' HOST_ID='{}' APPLY={} bash -s",
+        "LC_ALL=C DIR_BASE='{}' HOST_ID='{}' APPLY={} bash -s",
         dir_esc,
         host_esc,
         if apply { 1 } else { 0 },
