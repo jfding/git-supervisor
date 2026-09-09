@@ -97,6 +97,37 @@ pub fn ssh_run(host: &Host, command: &str) -> Result<()> {
     }
 }
 
+/// Run a shell command on the remote host, capturing stdout and stderr into one string.
+///
+/// Used when several hosts are prepared concurrently: their output has to be buffered
+/// and flushed per host, otherwise remote status lines from different hosts interleave
+/// on the shared terminal. Stdin is closed so a stalled auth prompt fails instead of
+/// blocking a worker thread.
+pub fn ssh_run_capture_combined(host: &Host, command: &str) -> Result<String> {
+    let mut cmd = build_ssh_command(host)?;
+    cmd.arg(command)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = cmd.output().context("Failed to execute ssh")?;
+    let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = filter_ssh_stderr(&String::from_utf8_lossy(&output.stderr));
+    if !stderr.is_empty() {
+        if !combined.is_empty() && !combined.ends_with('\n') {
+            combined.push('\n');
+        }
+        combined.push_str(&stderr);
+    }
+    if !output.status.success() {
+        let detail = combined.trim();
+        if detail.is_empty() {
+            anyhow::bail!("ssh exited with {}", output.status);
+        }
+        anyhow::bail!("ssh exited with {}: {}", output.status, detail);
+    }
+    Ok(combined)
+}
+
 /// Run a remote command with stdin data (e.g. pipe a script into bash).
 pub fn ssh_run_with_stdin(host: &Host, command: &str, stdin_data: &[u8]) -> Result<()> {
     let mut cmd = build_ssh_command(host)?;

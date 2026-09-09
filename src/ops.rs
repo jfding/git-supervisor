@@ -39,14 +39,16 @@ fn check_tool_available(host: &Host, tool: &str) -> Result<()> {
             anyhow::bail!("{} not found in local host", tool);
         }
     } else {
-        ssh::ssh_run(host, &cmd)
+        ssh::ssh_run_capture_combined(host, &cmd)
+            .map(|_| ())
             .with_context(|| format!("{} not found in remote host", tool))
     }
 }
 
 fn check_tool_runnable(host: &Host, tool: &str, command: &str) -> Result<()> {
     let cmd = format!("{} {} > /dev/null 2>&1", tool, command);
-    ssh::ssh_run(host, &cmd)
+    ssh::ssh_run_capture_combined(host, &cmd)
+        .map(|_| ())
         .with_context(|| format!("{} failed to run on remote host", tool))
 }
 
@@ -66,13 +68,17 @@ pub fn create_dirs(host: &Host, dir_repos: &Path, dir_copies: &Path) -> Result<(
     let r = escape_single_quoted(&dir_repos.to_string_lossy());
     let c = escape_single_quoted(&dir_copies.to_string_lossy());
     let command = format!("mkdir -p {} {} 2>/dev/null", r, c);
-    ssh::ssh_run(host, &command).context("create_dirs failed")
+    ssh::ssh_run_capture_combined(host, &command)
+        .map(|_| ())
+        .context("create_dirs failed")
 }
 
 /// Ensure the repo exists on the remote: clone if missing unless `ignore_missing` is true
 /// dir_repos is the path to the git_repos directory on the remote.
 /// `github_ssh_key` is an optional path (on the remote host) to the SSH key used for GitHub access.
-pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: bool, github_ssh_key: Option<&str>) -> Result<()> {
+/// Returns the remote's own output (status line, plus `git clone` progress) so the caller
+/// decides when to print it — hosts are prepared in parallel and share one terminal.
+pub fn ensure_repo(host: &Host, dir_repos: &Path, repo: &Repo, ignore_missing: bool, github_ssh_key: Option<&str>) -> Result<String> {
     // Sanitize: name and git_url must not be used in shell eval. We pass them as
     // arguments to a single-quoted script fragment. The only way to get out of
     // single quotes is a closing quote, so we must not allow ' in name or git_url
@@ -130,7 +136,7 @@ fi",
         )
     };
 
-    ssh::ssh_run(host, &command)
+    ssh::ssh_run_capture_combined(host, &command)
         .with_context(|| format!("clone & [optional]fetch {} failed", repo.name))
 }
 

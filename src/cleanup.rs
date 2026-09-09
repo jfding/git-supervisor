@@ -1,8 +1,9 @@
 use crate::config::CentralConfig;
 use crate::config::Host;
-use crate::console::{self, paint, Color};
+use crate::console::{paint, Color};
+use crate::hosts::{self, HostOutcome};
 use crate::ssh;
-use crate::status::{format_relative_time, glob_match};
+use crate::status::format_relative_time;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -97,22 +98,9 @@ pub fn summarize(reports: &[CleanupReport], apply: bool, host_count: usize) -> S
     }
 }
 
-fn host_filter_matches(patterns: &[String], host_id: &str) -> bool {
-    if patterns.is_empty() {
-        return true;
-    }
-    patterns.iter().any(|p| glob_match(p, host_id))
-}
-
 // ─── Host-level probe ────────────────────────────────────────────────────────
 
-enum HostOutcome {
-    Ok(Vec<CleanupReport>),
-    Empty,          // probe succeeded, no stale dirs (or $DIR_COPIES missing)
-    Failed(String), // SSH/probe failed; message includes stderr
-}
-
-fn collect_host(host_id: &str, host: &Host, dir_base: &Path, apply: bool) -> HostOutcome {
+fn collect_host(host_id: &str, host: &Host, dir_base: &Path, apply: bool) -> HostOutcome<CleanupReport> {
     let dir_esc = dir_base.to_string_lossy().replace('\'', "'\\''");
     let host_esc = host_id.replace('\'', "'\\''");
     let command = format!(
@@ -163,47 +151,11 @@ fn render_host(host_id: &str, reports: &[CleanupReport], now: u64) {
 /// Dry-run by default; deletes only when `opts.apply` is true. Best-effort:
 /// renders everything it can, then returns Err if any host or any deletion failed.
 pub fn run_cleanup(config: &CentralConfig, opts: CleanupOpts) -> anyhow::Result<()> {
-    // Filter & skip empty-repos hosts (matches run_status's behavior).
-    let mut targets: Vec<(String, &Host)> = Vec::new();
-    for (host_id, host) in &config.hosts {
-        if !host.is_wildcard() && config.repos_for_host(host_id).is_empty() {
-            console::log_info(format!(
-                "cleanup host {{ {} }} --> skipped (repos: [] is empty)",
-                host_id
-            ));
-            continue;
-        }
-        if !host_filter_matches(&opts.host_patterns, host_id) {
-            continue;
-        }
-        targets.push((host_id.clone(), host));
-    }
+    let targets = hosts::select_targets(config, "cleanup", &opts.host_patterns)?;
 
-    if !opts.host_patterns.is_empty() && targets.is_empty() {
-        anyhow::bail!("no hosts matched: {:?}", opts.host_patterns);
-    }
-
-    // Parallel fanout across hosts.
     let apply = opts.apply;
-    let outcomes: Vec<(String, HostOutcome)> = std::thread::scope(|s| {
-        let handles: Vec<_> = targets
-            .iter()
-            .map(|(host_id, host)| {
-                let host_id = host_id.clone();
-                let dir_base = config.dir_base_for_host(&host_id);
-                let host_ref: &Host = host;
-                s.spawn(move || {
-                    let outcome = collect_host(&host_id, host_ref, &dir_base, apply);
-                    (host_id, outcome)
-                })
-            })
-            .collect();
-        let mut out: Vec<_> = handles
-            .into_iter()
-            .map(|h| h.join().expect("thread panicked"))
-            .collect();
-        out.sort_by(|a, b| a.0.cmp(&b.0));
-        out
+    let outcomes = hosts::fanout(&targets, |host_id, host| {
+        collect_host(host_id, host, &config.dir_base_for_host(host_id), apply)
     });
 
     let now = chrono::Local::now().timestamp().max(0) as u64;
@@ -226,11 +178,7 @@ pub fn run_cleanup(config: &CentralConfig, opts: CleanupOpts) -> anyhow::Result<
             }
             HostOutcome::Failed(msg) => {
                 any_failed = true;
-                println!("{}", paint(format!("host: {}  ERROR", host_id), Color::Red));
-                let first_line = msg.lines().next().unwrap_or("");
-                if !first_line.is_empty() {
-                    println!("  {}", paint(first_line, Color::Red));
-                }
+                hosts::render_host_error(host_id, msg);
             }
         }
     }
