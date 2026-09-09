@@ -1,6 +1,7 @@
 use crate::config::CentralConfig;
 use crate::config::Host;
-use crate::console::{self, paint, Color};
+use crate::console::{paint, Color};
+use crate::hosts::{self, HostOutcome};
 use crate::ssh;
 use std::collections::BTreeMap;
 
@@ -94,19 +95,6 @@ pub fn format_relative_time(mtime: u64, now: u64) -> String {
 }
 
 /// Minimal shell-glob matcher: `*` (any run), `?` (any one char). Anchored.
-pub fn glob_match(pattern: &str, s: &str) -> bool {
-    fn inner(p: &[u8], s: &[u8]) -> bool {
-        match (p.first(), s.first()) {
-            (None, None) => true,
-            (Some(b'*'), _) => inner(&p[1..], s) || (!s.is_empty() && inner(p, &s[1..])),
-            (Some(b'?'), Some(_)) => inner(&p[1..], &s[1..]),
-            (Some(pc), Some(sc)) if pc == sc => inner(&p[1..], &s[1..]),
-            _ => false,
-        }
-    }
-    inner(pattern.as_bytes(), s.as_bytes())
-}
-
 /// Compare two release tag names with the same semantics as check-push.sh's
 /// `sort_version_tags_desc`: strip leading `v`, split on `.` and `Q`, compare
 /// numerically; missing segments are 0. Returns `Greater` when `a` > `b`.
@@ -183,13 +171,7 @@ pub fn group_reports(reports: Vec<Report>) -> GroupedReports {
 
 // ─── Host-level probe ────────────────────────────────────────────────────────
 
-enum HostOutcome {
-    Ok(Vec<Report>),
-    Empty,           // probe succeeded, $DIR_COPIES missing — fresh host
-    Failed(String),  // SSH/probe failed; message includes stderr
-}
-
-fn collect_host(host_id: &str, host: &Host, dir_base: &std::path::Path) -> HostOutcome {
+fn collect_host(host_id: &str, host: &Host, dir_base: &std::path::Path) -> HostOutcome<Report> {
     let dir_esc = dir_base.to_string_lossy().replace('\'', "'\\''");
     let host_esc = host_id.replace('\'', "'\\''");
     let command = format!(
@@ -207,11 +189,6 @@ fn collect_host(host_id: &str, host: &Host, dir_base: &std::path::Path) -> HostO
             }
         }
     }
-}
-
-fn host_filter_matches(patterns: &[String], host_id: &str) -> bool {
-    if patterns.is_empty() { return true; }
-    patterns.iter().any(|p| glob_match(p, host_id))
 }
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
@@ -239,35 +216,10 @@ fn render_rows(rows: &[Report], now: u64) {
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 pub fn run_status(config: &CentralConfig, opts: StatusOpts) -> anyhow::Result<()> {
-    // Filter & skip-empty-repos hosts (matches run_check's behavior).
-    let mut targets: Vec<(String, &Host)> = Vec::new();
-    for (host_id, host) in &config.hosts {
-        if !host.is_wildcard() && config.repos_for_host(host_id).is_empty() {
-            console::log_info(format!("status host {{ {} }} --> skipped (repos: [] is empty)", host_id));
-            continue;
-        }
-        if !host_filter_matches(&opts.host_patterns, host_id) { continue; }
-        targets.push((host_id.clone(), host));
-    }
+    let targets = hosts::select_targets(config, "status", &opts.host_patterns)?;
 
-    if !opts.host_patterns.is_empty() && targets.is_empty() {
-        anyhow::bail!("no hosts matched: {:?}", opts.host_patterns);
-    }
-
-    // Parallel fanout.
-    let outcomes: Vec<(String, HostOutcome)> = std::thread::scope(|s| {
-        let handles: Vec<_> = targets.iter().map(|(host_id, host)| {
-            let host_id = host_id.clone();
-            let dir_base = config.dir_base_for_host(&host_id);
-            let host_ref: &Host = host;
-            s.spawn(move || {
-                let outcome = collect_host(&host_id, host_ref, &dir_base);
-                (host_id, outcome)
-            })
-        }).collect();
-        let mut out: Vec<_> = handles.into_iter().map(|h| h.join().expect("thread panicked")).collect();
-        out.sort_by(|a, b| a.0.cmp(&b.0));
-        out
+    let outcomes = hosts::fanout(&targets, |host_id, host| {
+        collect_host(host_id, host, &config.dir_base_for_host(host_id))
     });
 
     let now = chrono::Local::now().timestamp().max(0) as u64;
@@ -292,13 +244,7 @@ pub fn run_status(config: &CentralConfig, opts: StatusOpts) -> anyhow::Result<()
     // Render in host order (matches sorted outcomes).
     for (host_id, outcome) in &outcomes {
         match outcome {
-            HostOutcome::Failed(msg) => {
-                println!("{}", paint(format!("host: {}  ERROR", host_id), Color::Red));
-                let first_line = msg.lines().next().unwrap_or("");
-                if !first_line.is_empty() {
-                    println!("  {}", paint(first_line, Color::Red));
-                }
-            }
+            HostOutcome::Failed(msg) => hosts::render_host_error(host_id, msg),
             HostOutcome::Empty => {
                 println!("host: {}  {}", host_id, paint("(no deployments yet)", Color::Grey));
             }
@@ -445,25 +391,6 @@ mod helper_tests {
         assert!(out.starts_with("2026-01-"), "{}", out);
     }
 
-    #[test]
-    fn glob_matches_star() {
-        assert!(glob_match("prod-*", "prod-app1"));
-        assert!(glob_match("prod-*", "prod-"));
-        assert!(!glob_match("prod-*", "staging-app1"));
-    }
-
-    #[test]
-    fn glob_matches_question() {
-        assert!(glob_match("app?", "app1"));
-        assert!(!glob_match("app?", "app12"));
-    }
-
-    #[test]
-    fn glob_anchors_full_string() {
-        assert!(!glob_match("prod", "prod-app1"));
-        assert!(glob_match("prod", "prod"));
-    }
-
     fn rep(host: &str, kind: ReportKind, repo: &str, name: &str) -> Report {
         Report {
             host: host.into(), kind, repo: repo.into(), name: name.into(),
@@ -537,20 +464,6 @@ mod helper_tests {
         };
         enrich_latest_release_flags(&mut entries);
         assert!(entries.releases[0].flags.is_empty());
-    }
-
-    #[test]
-    fn host_filter_matches_empty_patterns_matches_all() {
-        assert!(host_filter_matches(&[], "anything"));
-        assert!(host_filter_matches(&[], ""));
-    }
-
-    #[test]
-    fn host_filter_matches_pattern_union() {
-        let pats = vec!["prod-*".to_string(), "bastion".to_string()];
-        assert!(host_filter_matches(&pats, "prod-app1"));
-        assert!(host_filter_matches(&pats, "bastion"));
-        assert!(!host_filter_matches(&pats, "staging"));
     }
 
     #[test]

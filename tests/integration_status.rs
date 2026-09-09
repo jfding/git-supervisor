@@ -40,7 +40,8 @@ fn status_renders_branch_against_localhost() {
         .unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let stdout = String::from_utf8(out.stdout).unwrap();
-    assert!(stdout.contains("host: local"), "stdout: {stdout}");
+    // The populated-host header is emoji-prefixed; the empty/error headers still say "host:".
+    assert!(stdout.contains("\u{1F5A5}\u{FE0F}: local"), "stdout: {stdout}");
     assert!(stdout.contains("demo"), "stdout: {stdout}");
     assert!(stdout.contains("main"), "stdout: {stdout}");
     assert!(stdout.contains("abcdef1"), "expected 7-char SHA truncation; stdout: {stdout}");

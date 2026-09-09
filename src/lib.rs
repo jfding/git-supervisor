@@ -9,6 +9,7 @@ pub mod cleanup;
 pub mod config;
 pub mod console;
 pub mod hook;
+pub mod hosts;
 pub mod keys;
 pub mod ops;
 pub mod ssh;
@@ -230,12 +231,8 @@ fn failure_set_for_host<'a>(
 pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
     let mut failures: Vec<String> = Vec::new();
 
-    for (host_id, host) in &config.hosts {
-        if !host.is_wildcard() && config.repos_for_host(host_id).is_empty() {
-            console::log_info(format!("Check host {{ {} }} --> skipped (repos: [] is empty)", host_id));
-            continue;
-        }
-
+    for (host_id, host) in hosts::select_targets(config, "Check", &[])? {
+        let host_id = host_id.as_str();
         let label = if host.is_wildcard() { " (wildcard)" } else { "" };
         console::log_info(format!("Check host {{ {} }}{} -->", host_id, label));
 
