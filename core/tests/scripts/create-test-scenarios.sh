@@ -60,10 +60,21 @@ EOF
 echo "Creating Docker restart files..."
 create_multi_docker_script "webapp" "main"
 create_docker_script "api-service" "main"
-echo "webapp-prod" > "$COPIES_DIR/webapp.prod.docker"
-echo "Created docker file: $COPIES_DIR/webapp.prod.docker (container: webapp-prod)"
 create_docker_hook_jobs "$COPIES_DIR/webapp.main.docker"
-create_docker_hook_jobs "$COPIES_DIR/webapp.prod.docker"
+
+# Preferred release docker path: <repo>.prod.latest.docker
+echo "webapp-prod-latest" > "$COPIES_DIR/webapp.prod.latest.docker"
+echo "Created docker file: $COPIES_DIR/webapp.prod.latest.docker (container: webapp-prod-latest)"
+create_docker_hook_jobs "$COPIES_DIR/webapp.prod.latest.docker"
+
+# Sibling fallback file — must be ignored while .prod.latest.docker exists
+echo "webapp-prod" > "$COPIES_DIR/webapp.prod.docker"
+echo "Created docker file: $COPIES_DIR/webapp.prod.docker (container: webapp-prod, fallback only)"
+
+# Fallback-only repo: only <repo>.prod.docker (no .prod.latest.docker)
+echo "api-service-prod" > "$COPIES_DIR/api-service.prod.docker"
+echo "Created docker file: $COPIES_DIR/api-service.prod.docker (container: api-service-prod)"
+create_docker_hook_jobs "$COPIES_DIR/api-service.prod.docker"
 
 # Create special test files
 echo "Creating special test files..."
@@ -111,7 +122,7 @@ echo "Created dot-prefixed directory: mobile-app.prod.v3.0.0"
 echo ""
 echo "Test scenarios created successfully!"
 echo "Available test configurations:"
-echo "- Docker restart configurations"
+echo "- Docker restart configurations (branch, .prod.latest.docker preferred, .prod.docker fallback)"
 echo "- Docker pre/post hook jobs around restart"
 echo "- .skipping file (webapp.test)"
 echo "- .debugging file (api-service.dev)"

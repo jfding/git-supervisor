@@ -108,6 +108,7 @@ if ! rg -q '^post:webapp-main$' "$DIR_BASE/copies/webapp.main/.docker-hook-post.
   echo "Error: docker post-hook output mismatch for webapp.main"
   exit 1
 fi
+# Preferred path: <repo>.prod.latest.docker
 if [[ ! -f "$DIR_BASE/copies/webapp.prod.${_expected_latest}/.docker-hook-pre.txt" ]]; then
   echo "Error: missing docker pre-hook output for latest webapp.prod release"
   exit 1
@@ -116,15 +117,32 @@ if [[ ! -f "$DIR_BASE/copies/webapp.prod.${_expected_latest}/.docker-hook-post.t
   echo "Error: missing docker post-hook output for latest webapp.prod release"
   exit 1
 fi
-if ! rg -q '^pre:webapp-prod$' "$DIR_BASE/copies/webapp.prod.${_expected_latest}/.docker-hook-pre.txt"; then
-  echo "Error: docker pre-hook output mismatch for webapp.prod release"
+if ! rg -q '^pre:webapp-prod-latest$' "$DIR_BASE/copies/webapp.prod.${_expected_latest}/.docker-hook-pre.txt"; then
+  echo "Error: docker pre-hook output mismatch for webapp.prod.latest.docker"
   exit 1
 fi
-if ! rg -q '^post:webapp-prod$' "$DIR_BASE/copies/webapp.prod.${_expected_latest}/.docker-hook-post.txt"; then
-  echo "Error: docker post-hook output mismatch for webapp.prod release"
+if ! rg -q '^post:webapp-prod-latest$' "$DIR_BASE/copies/webapp.prod.${_expected_latest}/.docker-hook-post.txt"; then
+  echo "Error: docker post-hook output mismatch for webapp.prod.latest.docker"
   exit 1
 fi
-echo "  OK: docker pre/post hook jobs executed for branch and release restarts"
+# Fallback path: <repo>.prod.docker when .prod.latest.docker is absent
+if [[ ! -f "$DIR_BASE/copies/api-service.prod.${_expected_latest}/.docker-hook-pre.txt" ]]; then
+  echo "Error: missing docker pre-hook output for api-service.prod.docker fallback"
+  exit 1
+fi
+if [[ ! -f "$DIR_BASE/copies/api-service.prod.${_expected_latest}/.docker-hook-post.txt" ]]; then
+  echo "Error: missing docker post-hook output for api-service.prod.docker fallback"
+  exit 1
+fi
+if ! rg -q '^pre:api-service-prod$' "$DIR_BASE/copies/api-service.prod.${_expected_latest}/.docker-hook-pre.txt"; then
+  echo "Error: docker pre-hook output mismatch for api-service.prod.docker fallback"
+  exit 1
+fi
+if ! rg -q '^post:api-service-prod$' "$DIR_BASE/copies/api-service.prod.${_expected_latest}/.docker-hook-post.txt"; then
+  echo "Error: docker post-hook output mismatch for api-service.prod.docker fallback"
+  exit 1
+fi
+echo "  OK: docker pre/post hook jobs executed for branch, preferred latest.docker, and prod.docker fallback"
 
 echo ""
 echo "=== Verifying multi-line *.docker restarts ==="
@@ -142,8 +160,21 @@ if rg -q 'invalid' "$DOCKER_RESTART_LOG"; then
   echo "Error: invalid docker name should not have been restarted"
   exit 1
 fi
+# Prefer .prod.latest.docker over sibling .prod.docker when both exist
+if ! rg -qx "webapp-prod-latest" "$DOCKER_RESTART_LOG"; then
+  echo "Error: expected docker restart of webapp-prod-latest (.prod.latest.docker)"
+  exit 1
+fi
+if rg -qx "webapp-prod" "$DOCKER_RESTART_LOG"; then
+  echo "Error: webapp-prod from .prod.docker should not restart when .prod.latest.docker exists"
+  exit 1
+fi
+if ! rg -qx "api-service-prod" "$DOCKER_RESTART_LOG"; then
+  echo "Error: expected docker restart of api-service-prod (.prod.docker fallback)"
+  exit 1
+fi
 # Hooks must use first valid name only (already asserted above as webapp-main)
-echo "  OK: multi-line *.docker restarted all valid names; skipped invalid"
+echo "  OK: multi-line *.docker restarted all valid names; skipped invalid; preferred latest.docker"
 
 echo ""
 echo "=== Verifying BR_WHITELIST / .skipping behavior ==="

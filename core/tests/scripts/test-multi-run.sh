@@ -152,6 +152,17 @@ LATEST_WEBAPP_AFTER=$(readlink "$DIR_BASE/copies/webapp.prod.latest" 2>/dev/null
   _fail "webapp.prod.latest points to '$LATEST_WEBAPP_AFTER', expected 'webapp.prod.v2026Q2.0.0'"
 _ok "webapp.prod.latest symlink updated to v2026Q2.0.0"
 
+# Symlink update should restart via preferred .prod.latest.docker (not .prod.docker)
+[[ -f "$DIR_BASE/copies/webapp.prod.v2026Q2.0.0/.docker-hook-pre.txt" ]] || \
+  _fail "missing docker pre-hook output after latest symlink update"
+[[ -f "$DIR_BASE/copies/webapp.prod.v2026Q2.0.0/.docker-hook-post.txt" ]] || \
+  _fail "missing docker post-hook output after latest symlink update"
+rg -q '^pre:webapp-prod-latest$' "$DIR_BASE/copies/webapp.prod.v2026Q2.0.0/.docker-hook-pre.txt" || \
+  _fail "expected pre-hook from .prod.latest.docker on new latest release"
+rg -q '^post:webapp-prod-latest$' "$DIR_BASE/copies/webapp.prod.v2026Q2.0.0/.docker-hook-post.txt" || \
+  _fail "expected post-hook from .prod.latest.docker on new latest release"
+_ok "webapp.prod.latest.docker hooks ran on symlink update to v2026Q2.0.0"
+
 # A freshly-created tag copy must carry a .git-rev matching the tag's commit
 REV_NEW_TAG=$(_read_git_rev "webapp.prod.v2026Q2.0.0")
 [[ -n "$REV_NEW_TAG" ]] || \

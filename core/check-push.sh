@@ -394,58 +394,58 @@ function _handle_docker {
     local _idx
     local -a _docker_names=()
 
-    if [[ -f "${_docker_path}" ]]; then
-      command -v docker >/dev/null || {
-        warn "docker cli not found, skip docker restart"
-        return
-      }
+    [[ -f "${_docker_path}" ]] || return 0
 
-      while IFS= read -r _line || [[ -n "${_line}" ]]; do
-        # trim leading/trailing whitespace; skip blank lines
-        _line="${_line#"${_line%%[![:space:]]*}"}"
-        _line="${_line%"${_line##*[![:space:]]}"}"
-        [[ -z "${_line}" ]] && continue
+    command -v docker >/dev/null || {
+      warn "docker cli not found, skip docker restart"
+      return
+    }
 
-        # Validate docker name to prevent command injection
-        if [[ ! ${_line} =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
-          warn "invalid docker name format in ${_docker_path}: ${_line}, skipping"
-          _had_invalid=1
-          continue
+    while IFS= read -r _line || [[ -n "${_line}" ]]; do
+      # trim leading/trailing whitespace; skip blank lines
+      _line="${_line#"${_line%%[![:space:]]*}"}"
+      _line="${_line%"${_line##*[![:space:]]}"}"
+      [[ -z "${_line}" ]] && continue
+
+      # Validate docker name to prevent command injection
+      if [[ ! ${_line} =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+        warn "invalid docker name format in ${_docker_path}: ${_line}, skipping"
+        _had_invalid=1
+        continue
+      fi
+      _docker_names+=("${_line}")
+    done < "${_docker_path}"
+
+    if [[ ${#_docker_names[@]} -eq 0 ]]; then
+      err "no valid docker names in ${_docker_path}, skipping"
+      return 1
+    fi
+
+    _first_docker_name="${_docker_names[0]}"
+
+    _run_docker_hook_job "${_pre_hook_path}" "pre" "${_first_docker_name}" "${_work_dir}" || return 1
+
+    _idx=0
+    for _docker_name in "${_docker_names[@]}"; do
+      highlight "..restarting docker [ ${_docker_name} ]"
+      if _timeout docker restart "${_docker_name}" > /dev/null; then
+        if [[ ${_idx} -eq 0 ]]; then
+          _first_restart_ok=1
         fi
-        _docker_names+=("${_line}")
-      done < "${_docker_path}"
-
-      if [[ ${#_docker_names[@]} -eq 0 ]]; then
-        err "no valid docker names in ${_docker_path}, skipping"
-        return 1
+      else
+        err "failed to restart docker [ ${_docker_name} ]"
+        _restart_failed=1
       fi
+      ((_idx++)) || true
+    done
 
-      _first_docker_name="${_docker_names[0]}"
+    # post-hook only if the first valid name restarted successfully
+    if [[ ${_first_restart_ok} -eq 1 ]]; then
+      _run_docker_hook_job "${_post_hook_path}" "post" "${_first_docker_name}" "${_work_dir}" || return 1
+    fi
 
-      _run_docker_hook_job "${_pre_hook_path}" "pre" "${_first_docker_name}" "${_work_dir}" || return 1
-
-      _idx=0
-      for _docker_name in "${_docker_names[@]}"; do
-        highlight "..restarting docker [ ${_docker_name} ]"
-        if _timeout docker restart "${_docker_name}" > /dev/null; then
-          if [[ ${_idx} -eq 0 ]]; then
-            _first_restart_ok=1
-          fi
-        else
-          err "failed to restart docker [ ${_docker_name} ]"
-          _restart_failed=1
-        fi
-        ((_idx++)) || true
-      done
-
-      # post-hook only if the first valid name restarted successfully
-      if [[ ${_first_restart_ok} -eq 1 ]]; then
-        _run_docker_hook_job "${_post_hook_path}" "post" "${_first_docker_name}" "${_work_dir}" || return 1
-      fi
-
-      if [[ ${_had_invalid} -ne 0 || ${_restart_failed} -ne 0 ]]; then
-        return 1
-      fi
+    if [[ ${_had_invalid} -ne 0 || ${_restart_failed} -ne 0 ]]; then
+      return 1
     fi
 }
 
@@ -661,6 +661,9 @@ function fetch_and_check {
       local _latest_path="${DIR_COPIES}/$(readlink $_latest_link 2>/dev/null || echo '')"
       local _cur_release_path="${DIR_COPIES}/${_repo}.prod.${_release}"
 
+      local _docker_path="${DIR_COPIES}/${_repo}.prod.latest.docker"
+      [[ -f "${_docker_path}" ]] || _docker_path="${DIR_COPIES}/${_repo}.prod.docker"
+
       # Only perform symlink update and associated actions if the path actually differs
       if [[ $_latest_path != $_cur_release_path ]]; then
         highlight "..linking latest release to [ $_release ]"
@@ -669,7 +672,7 @@ function fetch_and_check {
         ln -sf $(basename "$_cur_release_path") "$_latest_link"
 
         # restart docker instance
-        _handle_docker "${DIR_COPIES}/${_repo}.prod.docker" "${_cur_release_path}" || \
+        _handle_docker "${_docker_path}" "${_cur_release_path}" || \
           err "WARNING: failed to restart docker instance for [ $_release ], ignoring"
       else
         debug "..latest release symlink already points to correct path, no update needed"
