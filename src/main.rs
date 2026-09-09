@@ -4,7 +4,7 @@ use git_supervisor::{run_check, run_cleanup, run_local_watch, run_status, run_ve
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "git-supervisor", version)]
+#[command(name = "git-supervisor", version = git_supervisor::version())]
 struct Cli {
     /// Config file path (default: ~/.config/git-supervisor/deployments.yaml or ./deployments.yaml)
     #[arg(short = 'c', long, global = true)]
@@ -119,7 +119,7 @@ fn main() {
             print!("{}", CHECK_PUSH_SCRIPT);
             Ok(())
         }
-        Command::Version => run_version_check(env!("CARGO_PKG_VERSION")),
+        Command::Version => run_version_check(git_supervisor::version()),
         Command::Check => {
             let path = config_path.unwrap_or_else(|| {
                 console::log_error(
@@ -170,7 +170,7 @@ fn main() {
                             skip_prepare: args.skip_prepare,
                             webhook_port: args.webhook_port,
                             webhook_secret: args.webhook_secret.clone(),
-                            version: env!("CARGO_PKG_VERSION").to_string(),
+                            version: git_supervisor::version().to_string(),
                         },
                     ))
                 }

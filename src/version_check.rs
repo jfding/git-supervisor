@@ -104,6 +104,21 @@ pub fn notify_line(current: &str, latest_tag: &str) -> Option<String> {
     }
 }
 
+/// Build the version string reported by `--version` and the `version`
+/// subcommand. A clean checkout of a release tag reports the bare package
+/// version; every other build appends the commit it was built from, so a
+/// binary handed around outside a release can still be traced back. Pure.
+pub fn display_version(pkg: &str, commit: &str, tagged: bool, dirty: bool) -> String {
+    if commit.is_empty() || (tagged && !dirty) {
+        return pkg.to_string();
+    }
+    let mut s = format!("{}+g{}", pkg, commit);
+    if dirty {
+        s.push_str(".dirty");
+    }
+    s
+}
+
 /// Cached result of a previous version check.
 #[derive(Serialize, Deserialize)]
 struct CacheData {
@@ -270,6 +285,39 @@ abc123\trefs/tags/v2.0.0
         let tags = vec!["v2.2.0-rc1".to_string(), "latest".to_string()];
         assert_eq!(latest_stable_tag(&tags), None);
         assert_eq!(latest_stable_tag(&[]), None);
+    }
+
+    #[test]
+    fn display_version_plain_on_clean_release_tag() {
+        assert_eq!(display_version("2.1.12", "78d6406", true, false), "2.1.12");
+    }
+
+    #[test]
+    fn display_version_appends_commit_off_tag() {
+        assert_eq!(
+            display_version("2.1.12", "78d6406", false, false),
+            "2.1.12+g78d6406"
+        );
+    }
+
+    #[test]
+    fn display_version_marks_dirty_tree_even_on_a_tag() {
+        assert_eq!(
+            display_version("2.1.12", "78d6406", true, true),
+            "2.1.12+g78d6406.dirty"
+        );
+    }
+
+    #[test]
+    fn display_version_falls_back_when_git_info_is_absent() {
+        assert_eq!(display_version("2.1.12", "", false, false), "2.1.12");
+    }
+
+    #[test]
+    fn display_version_stays_comparable_against_release_tags() {
+        let v = display_version("2.1.12", "78d6406", false, true);
+        assert_eq!(compare_versions(&v, "v2.1.12"), Ordering::Equal);
+        assert_eq!(compare_versions(&v, "v2.1.13"), Ordering::Less);
     }
 
     #[test]

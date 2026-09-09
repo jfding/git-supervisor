@@ -236,6 +236,18 @@ The logic in the central check-push.sh script:
 
 The project version is defined solely in `Cargo.toml`. `git-supervisor --version` reflects it directly.
 
+Builds that are not a clean checkout of a release tag append the commit they were
+built from, so a binary handed around outside a release can be traced back:
+
+```
+git-supervisor 2.1.12                  # clean checkout of a tagged release
+git-supervisor 2.1.12+g78d6406         # built off-tag, from commit 78d6406
+git-supervisor 2.1.12+g78d6406.dirty   # built with uncommitted changes
+```
+
+The commit info is captured by `build.rs` at compile time; when no git metadata is
+available (source tarball, Docker build) the bare version is shown.
+
 To bump the version (updates `Cargo.toml`, `Cargo.lock`, and the docker-compose image tag), run:
 
 ```bash

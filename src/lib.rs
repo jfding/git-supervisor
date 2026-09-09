@@ -21,6 +21,20 @@ pub use status::{run_status, StatusOpts};
 pub use cleanup::{run_cleanup, CleanupOpts};
 pub use version_check::{maybe_notify_update, run_version_check};
 
+/// Version string for this build: the bare package version on a clean release
+/// tag, otherwise the package version plus the commit it was built from.
+pub fn version() -> &'static str {
+    static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    VERSION.get_or_init(|| {
+        version_check::display_version(
+            env!("CARGO_PKG_VERSION"),
+            env!("GIT_SUPERVISOR_COMMIT"),
+            !env!("GIT_SUPERVISOR_TAGGED").is_empty(),
+            !env!("GIT_SUPERVISOR_DIRTY").is_empty(),
+        )
+    })
+}
+
 /// Options for the watch event loop.
 pub struct WatchOpts {
     pub interval_secs: u64,
