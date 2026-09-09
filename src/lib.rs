@@ -237,8 +237,8 @@ pub fn run_check(config: &CentralConfig) -> Result<(), anyhow::Error> {
         console::log_info(format!("Check host {{ {} }}{} -->", host_id, label));
 
         if let Err(e) = ops::check_git_available(host).context("check git/ssh available") {
-            console::log_error(format!("Error {{ {} }}: {}", host_id, e));
-            failures.push(format!("{{ {} }}: {}", host_id, e));
+            console::log_error(format!("Error {{ {} }}: {:#}", host_id, e));
+            failures.push(format!("{{ {} }}: {:#}", host_id, e));
             continue;
         }
 
@@ -284,46 +284,119 @@ fi",
     }
 }
 
-/// Prepare remotes: create dirs and optionally ensure repos exist (clone only when missing; no fetch).
-/// If `ignore_missing` is true, check each repo and report "ready" or "missing" but do not clone missing ones.
-fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyhow::Error> {
+/// Log lines buffered by one worker thread, flushed as a single block by that worker.
+/// Level filtering happens at push time so `LOGLEVEL` behaves as it does for `console::log_*`.
+struct HostLog(Vec<String>);
+
+impl HostLog {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn info(&mut self, text: impl AsRef<str>) {
+        if console::log_level() >= 1 {
+            self.0.push(console::fmt_log(console::info(text)));
+        }
+    }
+
+    fn warning(&mut self, text: impl AsRef<str>) {
+        self.0.push(console::fmt_log(console::warning(text)));
+    }
+
+    fn error(&mut self, text: impl AsRef<str>) {
+        self.0.push(console::fmt_log(console::error(text)));
+    }
+
+    /// Output produced by the remote itself: already colored, and not timestamped
+    /// (same as when it was streamed straight through an inherited stderr).
+    fn remote(&mut self, text: &str) {
+        self.0.extend(text.lines().map(str::to_owned));
+    }
+
+    fn flush(&self) {
+        for line in &self.0 {
+            eprintln!("{}", line);
+        }
+    }
+}
+
+/// One host's prepare result: its buffered output plus failures for the caller to aggregate.
+struct PrepareOutcome {
+    log: HostLog,
+    failures: Vec<String>,
+}
+
+/// Prepare a single remote: verify tooling, create dirs, then ensure each repo exists.
+/// Prints nothing — everything is buffered so parallel hosts don't interleave.
+fn prepare_host(
+    config: &CentralConfig,
+    host_id: &str,
+    host: &Host,
+    ignore_missing: bool,
+) -> PrepareOutcome {
+    let mut log = HostLog::new();
     let mut failures: Vec<String> = Vec::new();
 
-    for (host_id, host) in &config.hosts {
-        if !host.is_wildcard() && config.repos_for_host(host_id).is_empty() {
-            console::log_info(format!("Prepare host {{ {} }} --> skipped (repos: [] is empty)", host_id));
-            continue;
-        }
+    let label = if host.is_wildcard() { " (wildcard)" } else { "" };
+    log.info(format!("Prepare host {{ {} }}{} -->", host_id, label));
 
-        let label = if host.is_wildcard() { " (wildcard)" } else { "" };
-        console::log_info(format!("Prepare host {{ {} }}{} -->", host_id, label));
+    let dir_repos = config.dir_repos_for_host(host_id);
+    let dir_copies = config.dir_copies_for_host(host_id);
 
-        let dir_repos = config.dir_repos_for_host(host_id);
-        let dir_copies = config.dir_copies_for_host(host_id);
+    if let Err(e) = ops::check_git_available(host).context("check git available") {
+        log.error(format!("Error {{ {} }}: {:#}", host_id, e));
+        failures.push(format!("{{ {} }}: {:#}", host_id, e));
+        return PrepareOutcome { log, failures };
+    }
 
-        if let Err(e) = ops::check_git_available(host).context("check git available") {
-            console::log_error(format!("Error {{ {} }}: {}", host_id, e));
-            failures.push(format!("{{ {} }}: {}", host_id, e));
-            continue;
-        }
+    if let Err(e) = ops::check_docker_available(host) {
+        log.warning(format!("Warning {{ {} }}: {:#} (optional)", host_id, e));
+    }
 
-        if let Err(e) = ops::check_docker_available(host) {
-            console::log_warning(format!("Warning {{ {} }}: {} (optional)", host_id, e));
-        }
+    if let Err(e) = ops::create_dirs(host, &dir_repos, &dir_copies).context("create_dirs") {
+        log.error(format!("Error {{ {} }}: {:#}", host_id, e));
+        failures.push(format!("{{ {} }}: {:#}", host_id, e));
+        return PrepareOutcome { log, failures };
+    }
 
-        if let Err(e) = ops::create_dirs(host, &dir_repos, &dir_copies).context("create_dirs") {
-            console::log_error(format!("Error {{ {} }}: {}", host_id, e));
-            failures.push(format!("{{ {} }}: {}", host_id, e));
-            continue;
-        }
-
-        for repo in config.repos_for_host(host_id) {
-            if let Err(e) = ops::ensure_repo(host, &dir_repos, &repo, ignore_missing, host.github_ssh_key.as_deref()) {
-                console::log_error(format!("Error {{ {} }}: {} (continuing)", host_id, e));
-                failures.push(format!("{{ {} }}: {}", host_id, e));
+    for repo in config.repos_for_host(host_id) {
+        match ops::ensure_repo(host, &dir_repos, &repo, ignore_missing, host.github_ssh_key.as_deref()) {
+            Ok(output) => log.remote(&output),
+            Err(e) => {
+                log.error(format!("Error {{ {} }}: {:#} (continuing)", host_id, e));
+                failures.push(format!("{{ {} }}: {:#}", host_id, e));
             }
         }
     }
+
+    PrepareOutcome { log, failures }
+}
+
+/// Prepare remotes: create dirs and optionally ensure repos exist (clone only when missing; no fetch).
+/// If `ignore_missing` is true, check each repo and report "ready" or "missing" but do not clone missing ones.
+///
+/// Hosts are prepared in parallel (one thread each, blocking SSH), the same fanout the
+/// deploy cycle uses. Repos within a host stay sequential: they share the host's disk
+/// and a clone storm on one box buys nothing.
+fn run_prepare(config: &CentralConfig, ignore_missing: bool) -> Result<(), anyhow::Error> {
+    let targets = hosts::select_targets(config, "Prepare", &[])?;
+
+    // Unlike `status`/`cleanup`, which render once every host has reported, each worker
+    // flushes its own block under `print_lock` the moment its host is done: prepare can
+    // sit on a long clone, and its output shares the timestamped watch log rather than
+    // being a table that has to be laid out as a whole.
+    let print_lock = std::sync::Mutex::new(());
+    let outcomes = hosts::fanout(&targets, |host_id, host| {
+        let outcome = prepare_host(config, host_id, host, ignore_missing);
+        let _guard = print_lock.lock().unwrap();
+        outcome.log.flush();
+        outcome.failures
+    });
+    let failures: Vec<String> = outcomes
+        .into_iter()
+        .flat_map(|(_host_id, failures)| failures)
+        .collect();
+
     console::log_info("Prepare DONE\n");
 
     if failures.is_empty() {

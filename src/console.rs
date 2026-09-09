@@ -9,10 +9,17 @@ pub fn log_level() -> u8 {
         .unwrap_or(2)
 }
 
-fn log_with_timestamp(text: impl AsRef<str>) {
-    eprintln!("{} {}",
+/// Format a log line the way the `log_*` helpers print it, without printing it.
+/// Lets a worker thread buffer its lines (keeping the timestamp of the actual event)
+/// so a caller can flush them grouped, instead of interleaving with other workers.
+pub fn fmt_log(text: impl AsRef<str>) -> String {
+    format!("{} {}",
         chrono::Local::now().format("%m-%d %H:%M:%S>"),
-        text.as_ref());
+        text.as_ref())
+}
+
+fn log_with_timestamp(text: impl AsRef<str>) {
+    eprintln!("{}", fmt_log(text));
 }
 
 /// Print a debug (level 3) message to stderr when LOGLEVEL >= 3.
